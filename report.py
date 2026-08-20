@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from src import hier  # noqa: E402
+from src import hier, quantiles as Q  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "out")
@@ -254,6 +254,9 @@ def main():
     RT = (body.groupby(["level", "recon"])
               .apply(lambda g: w(g), include_groups=False).unstack("recon"))
     RT = RT.reindex(hier.LEVELS)
+    order = [c for c in ("base_incoherent", "bottom_up", "mint_ols",
+                         "mint_wls", "mint_shrink") if c in RT.columns]
+    RT = RT[order]
     emit(RT.to_string(float_format=lambda x: "%7.4f" % x))
     emit("")
     emit("Max coherence violation (units, over the whole horizon):")
@@ -261,12 +264,139 @@ def main():
     emit("")
     emit("Reading: base forecasts are produced independently at every level and do")
     emit("NOT add up -- that column is the incoherent starting point. Bottom-up is")
-    emit("coherent for free but discards the aggregate models entirely. MinT(shrink)")
-    emit("is coherent AND uses them; where it loses to bottom-up, the residual")
-    emit("covariance estimate is the suspect (353 series, %d residual days)."
-         % 180)
+    emit("coherent for free but discards the aggregate models entirely. The three")
+    emit("MinT variants differ ONLY in the weight matrix W they invert:")
+    emit("")
+    emit("  mint_ols     W = I. Treats every series' error as equally important,")
+    emit("               which for a hierarchy spanning a 300-unit total and a")
+    emit("               0.2-unit item is obviously false, and it is included to")
+    emit("               show how false.")
+    emit("  mint_wls     W = diag(residual variances). Scales by each series' own")
+    emit("               error, which is the cheap fix and usually most of the win.")
+    emit("  mint_shrink  W = shrunk residual COVARIANCE. Also uses the correlation")
+    emit("               between series -- the thing that makes MinT better than")
+    emit("               scaling in principle, and the thing that is hardest to")
+    emit("               estimate from 353 series and 180 residual days.")
+    emit("")
+    best_by_level = RT.drop(columns=["base_incoherent"]).idxmin(axis=1)
+    emit("Best reconciliation per level:")
+    for lv in hier.LEVELS:
+        if lv in best_by_level.index:
+            emit("  %-12s %s" % (lv, best_by_level[lv]))
+    emit("")
+    emit("BOTTOM-UP WINS OR TIES ALMOST EVERYWHERE, and that is the honest result.")
+    emit("MinT should beat it in theory -- it uses information bottom-up throws")
+    emit("away. It does not here, and the reason is visible in the base_incoherent")
+    emit("column: the directly-fitted aggregate models are WORSE than aggregating")
+    emit("the bottom-level forecasts (total 0.11 vs 0.06), because errors cancel on")
+    emit("the way up. MinT blends those weaker aggregate forecasts back in, and")
+    emit("blending in a worse signal makes things worse. That is not a bug in MinT;")
+    emit("it is MinT correctly weighting information that happens not to be worth")
+    emit("having on this hierarchy.")
     summary["reconciliation"] = RT.round(4).to_dict("index")
     summary["coherence_max_violation"] = coh.round(6).to_dict()
+
+    # ------------------------------------------------------------------
+    emit("")
+    emit("=" * 78)
+    emit("8. QUANTILE FORECASTS -- WHAT YOU ACTUALLY HAND REPLENISHMENT")
+    emit("=" * 78)
+    emit("The spec's question: replenishment wants one number per item x store x")
+    emit("day, and the model produces a distribution. What do you hand them?")
+    emit("")
+    emit("The first pass answered this in PROSE and said the code could not do it.")
+    emit("Now it can: a separate quantile GBM per service level, at the bottom")
+    emit("level, scored on the evaluation folds.")
+    emit("")
+    import pickle
+    with open(os.path.join(OUT, "quantile_raw.pkl"), "rb") as f:
+        qrows = pickle.load(f)
+    qrows = [r for r in qrows if r["fold"] in EVAL_FOLDS]
+
+    actual = np.concatenate([np.array(r["actual"]) for r in qrows])
+    mean_fc = np.concatenate([np.array(r["mean_fc"]) for r in qrows])
+    preds = {tau: np.concatenate([np.array(r["q%.2f" % tau]) for r in qrows])
+             for tau in Q.SERVICE_LEVELS}
+
+    rows = Q.evaluate_quantiles(actual, preds)
+    QT = pd.DataFrame(rows).set_index("tau")
+    QT["implied_cost_ratio"] = [Q.implied_cost_ratio(t) for t in QT.index]
+    show_cols = ["coverage", "mean_forecast", "implied_cost_ratio"] + \
+                ["pinball@%.2f" % t for t in Q.SERVICE_LEVELS]
+    emit(QT[show_cols].to_string(float_format=lambda x: "%9.4f" % x))
+    emit("")
+    emit("COVERAGE is the calibration check: the share of actual days at or below")
+    emit("the forecast. For a well-calibrated tau-quantile it should equal tau.")
+    for t in Q.SERVICE_LEVELS:
+        emit("  tau=%.2f  target coverage %.2f  achieved %.4f  (%+.4f)"
+             % (t, t, QT.loc[t, "coverage"], QT.loc[t, "coverage"] - t))
+    emit("")
+    emit("THE P50 OVER-COVERS BADLY (%.4f against a target of 0.50) and the reason"
+         % QT.loc[0.50, "coverage"])
+    emit("is worth stating rather than glossing: coverage counts actual <= forecast,")
+    emit("and on a series that is zero 40%% of the time the median forecast is often")
+    emit("ZERO. Every zero day then counts as covered, because 0 <= 0. That is a")
+    emit("property of coverage as a diagnostic on discrete zero-inflated data, not")
+    emit("a miscalibrated model -- and the pinball diagonal below confirms the P50")
+    emit("is in fact the best P50 available. It is a reminder that a calibration")
+    emit("check needs to be read against the data it is computed on: the same")
+    emit("statistic that is informative at tau=0.95 is nearly meaningless at 0.50")
+    emit("here.")
+    emit("")
+    emit("THE DIAGONAL IS THE PROOF. Each row is scored on EVERY tau's pinball")
+    emit("loss, and a calibrated set of quantiles should have each forecast")
+    emit("winning the loss for the tau it was fitted to:")
+    diag_ok = 0
+    for t in Q.SERVICE_LEVELS:
+        col = "pinball@%.2f" % t
+        winner = QT[col].idxmin()
+        ok = abs(winner - t) < 1e-9
+        diag_ok += int(ok)
+        emit("  pinball@%.2f is minimised by tau=%.2f  %s"
+             % (t, winner, "OK" if ok else "<-- MISCALIBRATED"))
+    emit("")
+    emit("%d of %d quantiles win their own loss." % (diag_ok, len(Q.SERVICE_LEVELS)))
+    emit("")
+    emit("WHY PINBALL AND NOT MAE: MAE is minimised by the MEDIAN, so scoring a")
+    emit("P90 on MAE would rank it worse than the P50 by construction -- it would")
+    emit("be measuring the wrong thing and calling the right answer wrong. The")
+    emit("pinball loss is the proper scoring rule for a quantile: at tau=0.9 an")
+    emit("under-forecast is penalised 9x more than an over-forecast of the same")
+    emit("size, which is exactly the asymmetry a 90% service level asserts.")
+    emit("")
+    emit("SO WHAT DO YOU HAND THEM. Not the mean. Ordering to the mean means being")
+    emit("short about half the time, and the two errors do not cost the same. You")
+    emit("hand them the quantile implied by the item's service target, and the")
+    emit("newsvendor result says which one:")
+    emit("")
+    emit("    q* = Cu / (Cu + Co)")
+    emit("")
+    emit("where Cu is the cost of being one unit short and Co of one too many.")
+    emit("Read the implied_cost_ratio column backwards and a service level stops")
+    emit("being a policy and becomes a claim somebody has to defend:")
+    for t in (0.90, 0.95, 0.98):
+        emit("  a %.0f%% service target ASSERTS that understocking costs %.0fx"
+             % (100 * t, Q.implied_cost_ratio(t)))
+        emit("  what overstocking costs.")
+    emit("")
+    emit("The mean forecast sits at %.4f units/day and the P95 at %.4f -- the gap"
+         % (mean_fc.mean(), preds[0.95].mean()))
+    emit("is the safety stock the service level is buying, and it is %.0f%% more"
+         % (100 * (preds[0.95].mean() / max(mean_fc.mean(), 1e-9) - 1)))
+    emit("inventory than ordering to the mean would hold.")
+    emit("")
+    emit("HONEST LIMITS. These are DAILY quantiles, and replenishment needs the")
+    emit("quantile of demand over the LEAD TIME, which is not the sum of daily")
+    emit("quantiles -- summing quantiles overstates, because the days do not all")
+    emit("go wrong together. Converting one to the other needs the dependence")
+    emit("structure across days, which is exactly what data2's negative-binomial")
+    emit("experiment found it was missing. Neither project has it, and they")
+    emit("independently arrived at the same gap, which is at least consistent.")
+    summary["quantiles"] = dict(
+        table=QT[show_cols].round(4).to_dict("index"),
+        diagonal_wins=diag_ok, n_taus=len(Q.SERVICE_LEVELS),
+        mean_forecast=float(mean_fc.mean()),
+        p95_forecast=float(preds[0.95].mean()))
 
     with open(os.path.join(OUT, "forecast_metrics.json"), "w") as f:
         json.dump(summary, f, indent=2, default=float)

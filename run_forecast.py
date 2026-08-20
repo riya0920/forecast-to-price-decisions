@@ -30,7 +30,7 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from src import core, feats, hier  # noqa: E402
+from src import core, feats, hier, quantiles as Q  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data")
@@ -39,6 +39,21 @@ OUT = os.path.join(HERE, "out")
 H = 28
 N_FOLDS = 6
 RESID_TAIL = 180  # days of in-sample residual used to estimate MinT's W
+
+
+def fit_predict_quantile(train, test, tau: float):
+    """A separate model per quantile. sklearn's quantile loss does not share a
+    fit across taus, so this is one model per tau -- which is why it is run only
+    at the bottom level, where replenishment actually places orders."""
+    X = train[feats.FEATURE_COLS].to_numpy(dtype=np.float32)
+    y = train.y.to_numpy(dtype=np.float64)
+    m = HistGradientBoostingRegressor(
+        loss="quantile", quantile=tau, max_iter=120, learning_rate=0.08,
+        max_leaf_nodes=31, min_samples_leaf=40, l2_regularization=1.0,
+        random_state=7, early_stopping=False)
+    m.fit(X, y)
+    return np.clip(m.predict(test[feats.FEATURE_COLS].to_numpy(dtype=np.float32)),
+                   0, None)
 
 
 def fit_predict_gbm(train, test):
@@ -88,7 +103,7 @@ def main():
     name_pos = {n: i for i, n in enumerate(names)}
     origins = [dates[-(k * H)] for k in range(N_FOLDS, 0, -1)]
 
-    records, recon_records = [], []
+    records, recon_records, qrecords = [], [], []
 
     for fi, origin in enumerate(origins, start=1):
         h_dates = dates[dates >= origin][:H]
@@ -102,6 +117,13 @@ def main():
             te = L[L.date.isin(h_dates)].copy()
             pred, _model, fitted = fit_predict_gbm(tr, te)
             te["gbm"] = pred
+
+            # Quantiles only at the bottom level: that is where replenishment
+            # places an order, and one model per tau per level would triple a
+            # six-minute backtest to buy numbers nobody would use.
+            if lv == "store_item":
+                for tau in Q.SERVICE_LEVELS:
+                    te["q%.2f" % tau] = fit_predict_quantile(tr, te, tau)
 
             # residual tail per key, taken in one pass (not a per-key filter)
             rdf = pd.DataFrame({"key": tr.key.to_numpy(), "r": tr.y.to_numpy() - fitted})
@@ -133,6 +155,15 @@ def main():
                         actual_h8_28=float(y_true[7:].sum()),
                     ))
 
+                if lv == "store_item":
+                    qrow = dict(fold=fi, key=key)
+                    for tau in Q.SERVICE_LEVELS:
+                        col = "q%.2f" % tau
+                        qrow[col] = grp[col].to_numpy(float).tolist()
+                    qrow["actual"] = y_true.tolist()
+                    qrow["mean_fc"] = fc["gbm"].tolist()
+                    qrecords.append(qrow)
+
                 i = name_pos[(lv, key)]
                 base_fc[i] = fc["gbm"]
                 r = rmap.get(key, np.zeros(RESID_TAIL))
@@ -140,10 +171,13 @@ def main():
 
         bu = hier.bottom_up(S, base_fc[-S.shape[1]:])
         mt = hier.mint(S, base_fc, resid, method="shrink")
+        mt_ols = hier.mint(S, base_fc, resid, method="ols")
+        mt_wls = hier.mint(S, base_fc, resid, method="wls")
         actual = np.vstack([panels[lv][key].reindex(h_dates).to_numpy(float)
                             for lv, key in names])
 
         for label, fcm in (("base_incoherent", base_fc), ("bottom_up", bu),
+                           ("mint_ols", mt_ols), ("mint_wls", mt_wls),
                            ("mint_shrink", mt)):
             for i, (lv, key) in enumerate(names):
                 recon_records.append(dict(
@@ -161,6 +195,9 @@ def main():
                                  index=False, compression="gzip")
     pd.DataFrame(recon_records).to_csv(os.path.join(OUT, "reconciliation_raw.csv.gz"),
                                        index=False, compression="gzip")
+    import pickle
+    with open(os.path.join(OUT, "quantile_raw.pkl"), "wb") as f:
+        pickle.dump(qrecords, f)
     print("\nbacktest complete in %.0fs -> out/backtest_raw.csv.gz" % (time.time() - t0))
 
 

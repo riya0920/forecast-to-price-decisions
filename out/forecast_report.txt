@@ -96,34 +96,166 @@ seasonal_naive          11            23
 ses                     18            39
 (1 series had no sales in the selection window and fall back to seasonal_naive.)
 
-THE RESULT THIS SECTION EXISTS FOR: the plain WMAPE gate is WORSE than
-just deploying the GBM everywhere. It picks 'naive' for most intermittent
-series, and on a series that is mostly zeros 'last value' is usually zero,
-so the forecast is all-zeros -- which scores WMAPE ~1.0 and cannot be beaten
-downward by anything that ever guesses a nonzero day wrong. WMAPE rewards
-the degenerate forecast on intermittent demand. Its selection-window bias
-gives it away, and that is what the guard reads.
+THE RESULT THIS SECTION EXISTS FOR, stated against my own expectation:
+per-series selection LOSES to just deploying the GBM everywhere. Both
+gates do. The textbook answer to 'your model loses on 18% of series' is
+'select per series' -- and measured on this panel that answer is wrong.
+
+Two mechanisms, both visible above:
+  (a) WMAPE rewards a degenerate forecast on intermittent demand. On a
+      mostly-zero series 'last value' is usually zero, so naive predicts
+      all-zeros, scores WMAPE ~1.0, and cannot be beaten downward by any
+      method that ever puts a unit on the wrong day. The plain gate duly
+      hands 96 series to naive -- whose standalone bias is -29%, i.e. a
+      replenishment system that under-orders every slow mover it owns.
+  (b) The gate is estimated on 3 folds x 28 days of a series that sells a
+      unit every third day. That is not enough signal to rank five methods,
+      so the choice is mostly noise, and noise costs more than the 18% of
+      series it was meant to rescue were losing.
+
+The bias guard does what it was built to do -- it moves 54 series off naive
+and pulls portfolio bias from -3.53% to -3.11% -- and still costs WMAPE.
+
+So the deployment recommendation from this backtest is the GBM globally,
+with per-series selection revisited only when there is enough evaluation
+history per series to estimate the choice -- more folds, or a gate
+estimated on a pooled class (intermittent/erratic/smooth) rather than on
+each series alone. That pooled variant is not built here; see the README.
 
 ==============================================================================
 7. HIERARCHICAL RECONCILIATION
 ==============================================================================
-recon       base_incoherent  bottom_up  mint_shrink
-level                                              
-total                0.1087     0.0616       0.0802
-state                0.1419     0.0817       0.1048
-store                0.1427     0.1226       0.1420
-store_cat            0.2111     0.2069       0.2123
-store_dept           0.2562     0.2672       0.2701
-store_item           0.5051     0.5051       0.5068
+recon       base_incoherent  bottom_up  mint_ols  mint_wls  mint_shrink
+level                                                                  
+total                0.1087     0.0616    0.0971    0.0802       0.0802
+state                0.1419     0.0817    0.1232    0.1048       0.1048
+store                0.1427     0.1226    0.1560    0.1420       0.1420
+store_cat            0.2111     0.2069    0.2236    0.2122       0.2123
+store_dept           0.2562     0.2672    0.2851    0.2700       0.2701
+store_item           0.5051     0.5051    0.5646    0.5068       0.5068
 
 Max coherence violation (units, over the whole horizon):
 recon
 base_incoherent   1519.864304
 bottom_up            0.000000
+mint_ols             0.000000
 mint_shrink          0.000000
+mint_wls             0.000000
 
 Reading: base forecasts are produced independently at every level and do
 NOT add up -- that column is the incoherent starting point. Bottom-up is
-coherent for free but discards the aggregate models entirely. MinT(shrink)
-is coherent AND uses them; where it loses to bottom-up, the residual
-covariance estimate is the suspect (353 series, 180 residual days).
+coherent for free but discards the aggregate models entirely. The three
+MinT variants differ ONLY in the weight matrix W they invert:
+
+  mint_ols     W = I. Treats every series' error as equally important,
+               which for a hierarchy spanning a 300-unit total and a
+               0.2-unit item is obviously false, and it is included to
+               show how false.
+  mint_wls     W = diag(residual variances). Scales by each series' own
+               error, which is the cheap fix and usually most of the win.
+  mint_shrink  W = shrunk residual COVARIANCE. Also uses the correlation
+               between series -- the thing that makes MinT better than
+               scaling in principle, and the thing that is hardest to
+               estimate from 353 series and 180 residual days.
+
+Best reconciliation per level:
+  total        bottom_up
+  state        bottom_up
+  store        bottom_up
+  store_cat    bottom_up
+  store_dept   bottom_up
+  store_item   bottom_up
+
+BOTTOM-UP WINS OR TIES ALMOST EVERYWHERE, and that is the honest result.
+MinT should beat it in theory -- it uses information bottom-up throws
+away. It does not here, and the reason is visible in the base_incoherent
+column: the directly-fitted aggregate models are WORSE than aggregating
+the bottom-level forecasts (total 0.11 vs 0.06), because errors cancel on
+the way up. MinT blends those weaker aggregate forecasts back in, and
+blending in a worse signal makes things worse. That is not a bug in MinT;
+it is MinT correctly weighting information that happens not to be worth
+having on this hierarchy.
+
+==============================================================================
+8. QUANTILE FORECASTS -- WHAT YOU ACTUALLY HAND REPLENISHMENT
+==============================================================================
+The spec's question: replenishment wants one number per item x store x
+day, and the model produces a distribution. What do you hand them?
+
+The first pass answered this in PROSE and said the code could not do it.
+Now it can: a separate quantile GBM per service level, at the bottom
+level, scored on the evaluation folds.
+
+      coverage  mean_forecast  implied_cost_ratio  pinball@0.50  pinball@0.75  pinball@0.90  pinball@0.95  pinball@0.98
+tau                                                                                                                    
+0.50    0.6130         4.4382              1.0000        1.3516        1.5883        1.7304        1.7777        1.8061
+0.75    0.7869         7.0592              3.0000        1.6526        1.2341        0.9830        0.8993        0.8490
+0.90    0.9090         9.8763              9.0000        2.5804        1.4576        0.7839        0.5593        0.4246
+0.95    0.9573        11.8305             19.0000        3.4018        1.7905        0.8237        0.5014        0.3080
+0.98    0.9798        14.1561             49.0000        4.4710        2.2783        0.9627        0.5241        0.2610
+
+COVERAGE is the calibration check: the share of actual days at or below
+the forecast. For a well-calibrated tau-quantile it should equal tau.
+  tau=0.50  target coverage 0.50  achieved 0.6130  (+0.1130)
+  tau=0.75  target coverage 0.75  achieved 0.7869  (+0.0369)
+  tau=0.90  target coverage 0.90  achieved 0.9090  (+0.0090)
+  tau=0.95  target coverage 0.95  achieved 0.9573  (+0.0073)
+  tau=0.98  target coverage 0.98  achieved 0.9798  (-0.0002)
+
+THE P50 OVER-COVERS BADLY (0.6130 against a target of 0.50) and the reason
+is worth stating rather than glossing: coverage counts actual <= forecast,
+and on a series that is zero 40%% of the time the median forecast is often
+ZERO. Every zero day then counts as covered, because 0 <= 0. That is a
+property of coverage as a diagnostic on discrete zero-inflated data, not
+a miscalibrated model -- and the pinball diagonal below confirms the P50
+is in fact the best P50 available. It is a reminder that a calibration
+check needs to be read against the data it is computed on: the same
+statistic that is informative at tau=0.95 is nearly meaningless at 0.50
+here.
+
+THE DIAGONAL IS THE PROOF. Each row is scored on EVERY tau's pinball
+loss, and a calibrated set of quantiles should have each forecast
+winning the loss for the tau it was fitted to:
+  pinball@0.50 is minimised by tau=0.50  OK
+  pinball@0.75 is minimised by tau=0.75  OK
+  pinball@0.90 is minimised by tau=0.90  OK
+  pinball@0.95 is minimised by tau=0.95  OK
+  pinball@0.98 is minimised by tau=0.98  OK
+
+5 of 5 quantiles win their own loss.
+
+WHY PINBALL AND NOT MAE: MAE is minimised by the MEDIAN, so scoring a
+P90 on MAE would rank it worse than the P50 by construction -- it would
+be measuring the wrong thing and calling the right answer wrong. The
+pinball loss is the proper scoring rule for a quantile: at tau=0.9 an
+under-forecast is penalised 9x more than an over-forecast of the same
+size, which is exactly the asymmetry a 90% service level asserts.
+
+SO WHAT DO YOU HAND THEM. Not the mean. Ordering to the mean means being
+short about half the time, and the two errors do not cost the same. You
+hand them the quantile implied by the item's service target, and the
+newsvendor result says which one:
+
+    q* = Cu / (Cu + Co)
+
+where Cu is the cost of being one unit short and Co of one too many.
+Read the implied_cost_ratio column backwards and a service level stops
+being a policy and becomes a claim somebody has to defend:
+  a 90% service target ASSERTS that understocking costs 9x
+  what overstocking costs.
+  a 95% service target ASSERTS that understocking costs 19x
+  what overstocking costs.
+  a 98% service target ASSERTS that understocking costs 49x
+  what overstocking costs.
+
+The mean forecast sits at 5.4156 units/day and the P95 at 11.8305 -- the gap
+is the safety stock the service level is buying, and it is 118% more
+inventory than ordering to the mean would hold.
+
+HONEST LIMITS. These are DAILY quantiles, and replenishment needs the
+quantile of demand over the LEAD TIME, which is not the sum of daily
+quantiles -- summing quantiles overstates, because the days do not all
+go wrong together. Converting one to the other needs the dependence
+structure across days, which is exactly what data2's negative-binomial
+experiment found it was missing. Neither project has it, and they
+independently arrived at the same gap, which is at least consistent.

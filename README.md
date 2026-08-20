@@ -1,18 +1,20 @@
 # ML-1 — Forecast-to-Price Decision System
 
-**This is not deployable.** It is the first ~20% of the spec: the machinery the
-hiring-manager doc calls the differentiator, built and measured, with the
-remaining 80% named at the bottom rather than left for a reader to discover.
+**Roughly 50% of the spec.** The machinery the hiring-manager doc calls the
+differentiator, plus the two biggest gaps the first pass named: **prediction
+intervals and the replenishment handoff** (the spec's own question, previously
+answered only in prose), and the **reconciliation survey** that had been one
+method rather than a comparison.
 
 Every number below was produced by running the code in this directory. Nothing
 is quoted from a paper or a leaderboard.
 
 ```bash
-python src/generate.py     # ~4s    build the panel
-python run_forecast.py     # ~6min  6-fold rolling-origin backtest, all levels
-python report.py           # ~20s   the FVA tables
-python run_pricing.py      # ~3min  elasticity + markdown
-python -m pytest tests -q  # 14 tests
+python src/generate.py     # ~4s     build the panel
+python run_forecast.py     # ~20min  6-fold backtest: point + 5 quantiles + 3 MinT variants
+python report.py           # ~25s    the FVA tables
+python run_pricing.py      # ~3min   elasticity + markdown
+python -m pytest tests -q  # 26 tests
 ```
 
 ## The data
@@ -155,16 +157,103 @@ strictly below classic Croston, the Syntetos–Boylan quadrants, MinT output bei
 coherent from a deliberately incoherent start, and the optimiser refusing to mark
 down inelastic demand.
 
-## The other 80% — what is NOT here
+## Second pass: what you actually hand replenishment
+
+The spec asks it directly: *replenishment wants one number per item×store×day,
+and the model produces a distribution — what do you hand them?* The first pass
+answered in prose and said the code couldn't do it. Now it can: a separate
+quantile GBM per service level at the bottom level.
+
+| tau | coverage | mean forecast | implied cost ratio |
+|---|---|---|---|
+| 0.50 | 0.6130 | 4.44 | 1× |
+| 0.75 | 0.7869 | 7.06 | 3× |
+| 0.90 | **0.9090** | 9.88 | 9× |
+| 0.95 | **0.9573** | 11.83 | 19× |
+| 0.98 | **0.9798** | 14.16 | 49× |
+
+**5 of 5 quantiles win their own pinball loss** — each forecast minimises the
+loss for the tau it was fitted to, which is the diagonal that proves the set is
+calibrated rather than merely ordered.
+
+**Why pinball and not MAE:** MAE is minimised by the *median*, so scoring a P90
+on MAE would rank it worse than the P50 by construction — measuring the wrong
+thing and calling the right answer wrong. A test demonstrates exactly that
+inversion.
+
+**The P50 over-covers (0.613 vs 0.50)** and that is explained rather than
+glossed: coverage counts `actual ≤ forecast`, and on a series that is zero 40% of
+the time the median forecast is often *zero*, so every zero day counts as covered
+because `0 ≤ 0`. It's a property of coverage as a diagnostic on discrete
+zero-inflated data, not a miscalibrated model — the pinball diagonal confirms the
+P50 is the best P50 available. The same statistic that is informative at tau=0.95
+is nearly meaningless at 0.50 here.
+
+**So what do you hand them?** Not the mean — ordering to the mean means being
+short about half the time, and the two errors don't cost the same. You hand them
+the quantile the service target implies, and the newsvendor result says which:
+
+```
+q* = Cu / (Cu + Co)
+```
+
+Read that column backwards and a service level stops being a policy and becomes a
+claim someone has to defend: **a 95% service target asserts that understocking
+costs 19× what overstocking costs.** That reframing is the useful half — it turns
+a service-level argument into a cost argument.
+
+The mean forecast is 4.44 units/day and the P95 is 11.83 — the gap is the safety
+stock the service level buys, **166% more inventory** than ordering to the mean.
+
+**Honest limit:** these are *daily* quantiles, and replenishment needs the
+quantile of demand over the **lead time**, which is not the sum of daily quantiles
+— summing them overstates, because the days don't all go wrong together.
+Converting one to the other needs the dependence structure across days, which is
+exactly what DATA-2's negative-binomial experiment independently found it was
+missing. Neither project has it, and arriving at the same gap from two directions
+is at least consistent.
+
+## Second pass: reconciliation as a survey, not one method
+
+| level | base (incoherent) | bottom-up | MinT OLS | MinT WLS | MinT shrink |
+|---|---|---|---|---|---|
+| total | 0.1087 | **0.0616** | 0.0971 | 0.0802 | 0.0802 |
+| state | 0.1419 | **0.0817** | 0.1232 | 0.1048 | 0.1048 |
+| store | 0.1427 | **0.1226** | 0.1560 | 0.1420 | 0.1420 |
+| store×dept | 0.2562 | **0.2672** | 0.2851 | 0.2700 | 0.2701 |
+| store×item | 0.5051 | **0.5051** | 0.5646 | 0.5068 | 0.5068 |
+
+The three MinT variants differ **only** in the weight matrix they invert: OLS
+treats every series' error as equally important (obviously false across a
+hierarchy spanning a 300-unit total and a 0.2-unit item, and included to show how
+false); WLS scales by each series' own residual variance; shrink also uses the
+*correlation* between series — the thing that makes MinT better in principle and
+hardest to estimate from 353 series and 180 residual days.
+
+**Bottom-up wins at every level, and that's the honest result.** MinT *should*
+beat it — it uses information bottom-up discards. The reason it doesn't is
+visible in the `base` column: directly-fitted aggregate models are worse than
+aggregating the bottom-level forecasts (total 0.11 vs 0.06) because errors cancel
+on the way up. MinT blends those weaker aggregates back in, and blending in a
+worse signal makes things worse. That is not a bug in MinT — it is MinT correctly
+weighting information that happens not to be worth having on this hierarchy.
+
+All four reconciliation methods are exactly coherent (max violation 0.000 units)
+against the incoherent base's 1,520-unit violation.
+
+## The other ~50% — what is NOT here
 
 - **No serving artifact.** The spec asks for a planner-facing view (item×store →
   forecast, intervals, FVA, recommended markdown path). There is no UI and no API.
-- **No prediction intervals**, so no P50/P90 service-level conversation and no
-  quantile hand-off to replenishment. This is the largest single gap: the spec's
-  "what do you hand replenishment" question is answered in prose below, not in code.
+- **Quantiles are daily, not lead-time** (see above) — the conversion needs a
+  cross-day dependence model neither this project nor DATA-2 has.
+- **Quantiles are bottom-level only.** Running five extra models per level per
+  fold would triple an already 20-minute backtest to produce numbers nobody
+  orders from.
 - **No global deep model** (the optional DeepAR/N-BEATS arm).
-- **Reconciliation is one alternative, not a survey** — bottom-up and MinT(shrink);
-  no OLS/WLS comparison run, no middle-out, no probabilistic reconciliation.
+- **No middle-out reconciliation and no probabilistic reconciliation** — the
+  quantiles are not reconciled across the hierarchy at all, so the P95s do not
+  add up even though the point forecasts do.
 - **The pooled-class selection gate** the report recommends (gate estimated per
   intermittency class rather than per series) is described and not built.
 - **Elasticity is per category**, not per item or per segment, and there is no
@@ -175,10 +264,9 @@ down inelastic demand.
   histogram algorithm, Poisson loss available). statsmodels is not installed, so
   OLS with HC0 errors is written out in `run_pricing.py`.
 
-**If asked "what would you hand replenishment?"** — the mean is the wrong answer
-and this repo cannot yet give the right one. Replenishment needs a quantile tied
-to a target service level (P90 for an A item, nearer P50 for a C item), which
-requires the intervals this build does not produce. What it *does* establish is
-the prerequisite everyone skips: the point forecast is unbiased (+0.6%) before
-anyone starts sizing a buffer on top of it, because safety stock sized on sigma
-does not cover a drift.
+**"What would you hand replenishment?"** — answered in code now, not prose: the
+quantile the item's service target implies, with the calibration to back it and
+the cost ratio that target is asserting. The prerequisite everyone skips still
+holds and still matters: the point forecast is unbiased (+0.6%) *before* anyone
+sizes a buffer on top of it, because safety stock sized on sigma does not cover a
+drift.

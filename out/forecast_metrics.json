@@ -201,37 +201,109 @@
     "total": {
       "base_incoherent": 0.1087,
       "bottom_up": 0.0616,
+      "mint_ols": 0.0971,
+      "mint_wls": 0.0802,
       "mint_shrink": 0.0802
     },
     "state": {
       "base_incoherent": 0.1419,
       "bottom_up": 0.0817,
+      "mint_ols": 0.1232,
+      "mint_wls": 0.1048,
       "mint_shrink": 0.1048
     },
     "store": {
       "base_incoherent": 0.1427,
       "bottom_up": 0.1226,
+      "mint_ols": 0.156,
+      "mint_wls": 0.142,
       "mint_shrink": 0.142
     },
     "store_cat": {
       "base_incoherent": 0.2111,
       "bottom_up": 0.2069,
+      "mint_ols": 0.2236,
+      "mint_wls": 0.2122,
       "mint_shrink": 0.2123
     },
     "store_dept": {
       "base_incoherent": 0.2562,
       "bottom_up": 0.2672,
+      "mint_ols": 0.2851,
+      "mint_wls": 0.27,
       "mint_shrink": 0.2701
     },
     "store_item": {
       "base_incoherent": 0.5051,
       "bottom_up": 0.5051,
+      "mint_ols": 0.5646,
+      "mint_wls": 0.5068,
       "mint_shrink": 0.5068
     }
   },
   "coherence_max_violation": {
     "base_incoherent": 1519.864304,
     "bottom_up": 0.0,
-    "mint_shrink": 0.0
+    "mint_ols": 0.0,
+    "mint_shrink": 0.0,
+    "mint_wls": 0.0
+  },
+  "quantiles": {
+    "table": {
+      "0.5": {
+        "coverage": 0.613,
+        "mean_forecast": 4.4382,
+        "implied_cost_ratio": 1.0,
+        "pinball@0.50": 1.3516,
+        "pinball@0.75": 1.5883,
+        "pinball@0.90": 1.7304,
+        "pinball@0.95": 1.7777,
+        "pinball@0.98": 1.8061
+      },
+      "0.75": {
+        "coverage": 0.7869,
+        "mean_forecast": 7.0592,
+        "implied_cost_ratio": 3.0,
+        "pinball@0.50": 1.6526,
+        "pinball@0.75": 1.2341,
+        "pinball@0.90": 0.983,
+        "pinball@0.95": 0.8993,
+        "pinball@0.98": 0.849
+      },
+      "0.9": {
+        "coverage": 0.909,
+        "mean_forecast": 9.8763,
+        "implied_cost_ratio": 9.0,
+        "pinball@0.50": 2.5804,
+        "pinball@0.75": 1.4576,
+        "pinball@0.90": 0.7839,
+        "pinball@0.95": 0.5593,
+        "pinball@0.98": 0.4246
+      },
+      "0.95": {
+        "coverage": 0.9573,
+        "mean_forecast": 11.8305,
+        "implied_cost_ratio": 19.0,
+        "pinball@0.50": 3.4018,
+        "pinball@0.75": 1.7905,
+        "pinball@0.90": 0.8237,
+        "pinball@0.95": 0.5014,
+        "pinball@0.98": 0.308
+      },
+      "0.98": {
+        "coverage": 0.9798,
+        "mean_forecast": 14.1561,
+        "implied_cost_ratio": 49.0,
+        "pinball@0.50": 4.471,
+        "pinball@0.75": 2.2783,
+        "pinball@0.90": 0.9627,
+        "pinball@0.95": 0.5241,
+        "pinball@0.98": 0.261
+      }
+    },
+    "diagonal_wins": 5,
+    "n_taus": 5,
+    "mean_forecast": 5.415593772716976,
+    "p95_forecast": 11.830507960354735
   }
 }

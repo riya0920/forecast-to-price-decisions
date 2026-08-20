@@ -1,0 +1,18 @@
+levels: {'total': 1, 'state': 2, 'store': 5, 'store_cat': 15, 'store_dept': 30, 'store_item': 300}
+features built in 14.4s
+
+Syntetos-Boylan classes (bottom level, n=300):
+cls
+intermittent    147
+erratic         122
+smooth           20
+lumpy            11
+
+fold 1  origin 2025-07-16  (132s elapsed)
+fold 2  origin 2025-08-13  (301s elapsed)
+fold 3  origin 2025-09-10  (393s elapsed)
+fold 4  origin 2025-10-08  (483s elapsed)
+fold 5  origin 2025-11-05  (622s elapsed)
+fold 6  origin 2025-12-03  (906s elapsed)
+
+backtest complete in 907s -> out/backtest_raw.csv.gz
