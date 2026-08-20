@@ -76,10 +76,11 @@ naive, whose standalone bias is **−29%**: a replenishment system that under-or
 every slow mover it owns. And the gate is estimated on 3 folds × 28 days of a
 series that sells a unit every third day, so the choice is mostly noise.
 
-**2. MinT loses to bottom-up at every level here.** Bottom-up totals 0.062 WMAPE
-against MinT's 0.080. The aggregate of the bottom-level forecasts is better than
-any directly-fitted aggregate model (errors cancel on the way up), so blending the
-weaker aggregate base forecasts in costs accuracy. Both are exactly coherent
+**2. MinT loses to bottom-up at every level here** — all three weightings of it,
+as the second pass confirms. Bottom-up totals 0.062 WMAPE against MinT-shrink's
+0.080 and MinT-OLS's 0.097. The aggregate of the bottom-level forecasts is better
+than any directly-fitted aggregate model (errors cancel on the way up), so
+blending the weaker aggregates back in costs accuracy. All are exactly coherent
 (max violation 0.000 units); the incoherent base forecasts violate by 1,520 units.
 
 **3. Naive log-log elasticity gets the *sign* wrong.** Six specifications scored
@@ -147,7 +148,7 @@ Also fixed: the per-series section originally dropped series with no sales in th
 selection window, flattering the policy by removing its hardest cases. The gate
 now falls back to the incumbent and a test asserts no series is dropped.
 
-## Tests (`pytest tests -q`, 14 passing)
+## Tests (`pytest tests -q`, 26 passing)
 
 The load-bearing one corrupts every sale at or after the forecast origin
 (`×1000 + 777`), rebuilds the features, and asserts the horizon feature rows are
