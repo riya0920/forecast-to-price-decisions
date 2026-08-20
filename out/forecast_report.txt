@@ -1,0 +1,129 @@
+==============================================================================
+1. WMAPE BY HIERARCHY LEVEL  (evaluation folds 4-6, 28-day horizon)
+==============================================================================
+             naive  seasonal_naive     ses  croston_sba     gbm  FVA_gbm
+total       0.3544          0.2794  0.3514       0.2990  0.1087   0.1707
+state       0.3643          0.3017  0.3497       0.3023  0.1419   0.1598
+store       0.4095          0.3358  0.3262       0.3277  0.1427   0.1931
+store_cat   0.4709          0.4180  0.3750       0.3682  0.2111   0.2069
+store_dept  0.5202          0.4786  0.4101       0.4052  0.2562   0.2224
+store_item  0.7351          0.7505  0.6017       0.5921  0.5051   0.2454
+
+FVA_gbm > 0 means the GBM beat seasonal naive at that level, in WMAPE points.
+
+==============================================================================
+2. HORIZON DECAY  (bottom level, store x item)
+==============================================================================
+                  h1_7   h8_28   decay
+method                                
+naive           0.7117  0.7420  0.0303
+seasonal_naive  0.7741  0.7436 -0.0305
+ses             0.5661  0.6121  0.0460
+croston_sba     0.5539  0.6033  0.0494
+gbm             0.5140  0.5025 -0.0116
+
+Seasonal naive barely decays -- it has no recent information to lose. The GBM's decay is
+the honest cost of a 4-week horizon: recent-lag information stops helping.
+
+==============================================================================
+3. FORECAST BIAS  (signed; + = over-forecast)
+==============================================================================
+                bias_pct    wmape
+method                           
+naive            -0.2919  +0.7351
+seasonal_naive   -0.0349  +0.7505
+ses              -0.0391  +0.6017
+croston_sba      -0.0877  +0.5921
+gbm              +0.0057  +0.5051
+
+Why this table sits next to accuracy: replenishment is asymmetric. A +5%
+bias is 5% more inventory dollars on every item, every cycle, forever; a
+-5% bias is a stockout rate that no service-level formula will predict
+because the formula assumes an unbiased forecast. Variance you buffer,
+bias you cannot -- safety stock sized on sigma does not cover a drift.
+
+==============================================================================
+4. INTERMITTENT BUCKET: MASE, NOT MAPE
+==============================================================================
+              n_series  zero_share  MASE_naive  MASE_seasonal_naive  MASE_ses  MASE_croston_sba  MASE_gbm
+cls                                                                                                      
+smooth              20       0.042       0.991                1.023     0.814             0.811     0.733
+erratic            122       0.075       1.091                1.113     0.887             0.876     0.747
+intermittent       147       0.715       1.002                1.116     1.002             0.982     1.021
+lumpy               11       0.320       1.093                1.165     0.922             0.929     0.853
+
+MAPE is not in this repo. On these buckets 40% of observation-days are
+zero, so a per-observation percentage error divides by zero on most of the
+evaluation set. MASE reads directly: 0.85 = 15%% less average absolute error
+than 'same day last week'. Above 1.00 = the naive rule was better.
+
+==============================================================================
+5. WHERE THE GBM LOSES  (the table a global-winner deployment hides)
+==============================================================================
+                n  gbm_win_rate  mean_units_day
+cls                                            
+erratic       122         1.000           8.107
+intermittent  147         0.639           0.453
+lumpy          11         1.000           1.566
+smooth         20         1.000          19.633
+
+GBM beats seasonal naive on 82.3% of item x store series.
+It loses on 17.7%. Deploying the aggregate winner everywhere would
+knowingly degrade those series -- which is why section 6 exists.
+
+==============================================================================
+6. FVA-GATED PER-SERIES SELECTION
+==============================================================================
+Champion chosen per series on folds 1-3, scored on folds 4-6. The
+selection never sees the evaluation window.
+
+                                   wmape     bias  FVA_vs_snaive
+policy                                                          
+naive                            +0.7351  -0.2919        +0.0153
+seasonal_naive                   +0.7505  -0.0349        +0.0000
+ses                              +0.6017  -0.0391        +0.1487
+croston_sba                      +0.5921  -0.0877        +0.1584
+gbm                              +0.5051  +0.0057        +0.2454
+PER-SERIES (WMAPE gate)          +0.5284  -0.0353        +0.2220
+PER-SERIES (WMAPE + bias guard)  +0.5612  -0.0311        +0.1893
+
+Champion mix -- WMAPE gate vs bias-guarded gate:
+                wmape_gate  bias_guarded
+croston_sba             36            75
+gbm                    139           121
+naive                   96            42
+seasonal_naive          11            23
+ses                     18            39
+(1 series had no sales in the selection window and fall back to seasonal_naive.)
+
+THE RESULT THIS SECTION EXISTS FOR: the plain WMAPE gate is WORSE than
+just deploying the GBM everywhere. It picks 'naive' for most intermittent
+series, and on a series that is mostly zeros 'last value' is usually zero,
+so the forecast is all-zeros -- which scores WMAPE ~1.0 and cannot be beaten
+downward by anything that ever guesses a nonzero day wrong. WMAPE rewards
+the degenerate forecast on intermittent demand. Its selection-window bias
+gives it away, and that is what the guard reads.
+
+==============================================================================
+7. HIERARCHICAL RECONCILIATION
+==============================================================================
+recon       base_incoherent  bottom_up  mint_shrink
+level                                              
+total                0.1087     0.0616       0.0802
+state                0.1419     0.0817       0.1048
+store                0.1427     0.1226       0.1420
+store_cat            0.2111     0.2069       0.2123
+store_dept           0.2562     0.2672       0.2701
+store_item           0.5051     0.5051       0.5068
+
+Max coherence violation (units, over the whole horizon):
+recon
+base_incoherent   1519.864304
+bottom_up            0.000000
+mint_shrink          0.000000
+
+Reading: base forecasts are produced independently at every level and do
+NOT add up -- that column is the incoherent starting point. Bottom-up is
+coherent for free but discards the aggregate models entirely. MinT(shrink)
+is coherent AND uses them; where it loses to bottom-up, the residual
+covariance estimate is the suspect (353 series, 180 residual days).

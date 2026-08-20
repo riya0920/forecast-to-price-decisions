@@ -1,0 +1,237 @@
+{
+  "wmape_by_level": {
+    "total": {
+      "naive": 0.3544,
+      "seasonal_naive": 0.2794,
+      "ses": 0.3514,
+      "croston_sba": 0.299,
+      "gbm": 0.1087,
+      "FVA_gbm": 0.1707
+    },
+    "state": {
+      "naive": 0.3643,
+      "seasonal_naive": 0.3017,
+      "ses": 0.3497,
+      "croston_sba": 0.3023,
+      "gbm": 0.1419,
+      "FVA_gbm": 0.1598
+    },
+    "store": {
+      "naive": 0.4095,
+      "seasonal_naive": 0.3358,
+      "ses": 0.3262,
+      "croston_sba": 0.3277,
+      "gbm": 0.1427,
+      "FVA_gbm": 0.1931
+    },
+    "store_cat": {
+      "naive": 0.4709,
+      "seasonal_naive": 0.418,
+      "ses": 0.375,
+      "croston_sba": 0.3682,
+      "gbm": 0.2111,
+      "FVA_gbm": 0.2069
+    },
+    "store_dept": {
+      "naive": 0.5202,
+      "seasonal_naive": 0.4786,
+      "ses": 0.4101,
+      "croston_sba": 0.4052,
+      "gbm": 0.2562,
+      "FVA_gbm": 0.2224
+    },
+    "store_item": {
+      "naive": 0.7351,
+      "seasonal_naive": 0.7505,
+      "ses": 0.6017,
+      "croston_sba": 0.5921,
+      "gbm": 0.5051,
+      "FVA_gbm": 0.2454
+    }
+  },
+  "horizon": {
+    "naive": {
+      "h1_7": 0.7117,
+      "h8_28": 0.742,
+      "decay": 0.0303
+    },
+    "seasonal_naive": {
+      "h1_7": 0.7741,
+      "h8_28": 0.7436,
+      "decay": -0.0305
+    },
+    "ses": {
+      "h1_7": 0.5661,
+      "h8_28": 0.6121,
+      "decay": 0.046
+    },
+    "croston_sba": {
+      "h1_7": 0.5539,
+      "h8_28": 0.6033,
+      "decay": 0.0494
+    },
+    "gbm": {
+      "h1_7": 0.514,
+      "h8_28": 0.5025,
+      "decay": -0.0116
+    }
+  },
+  "bias": {
+    "naive": {
+      "bias_pct": -0.2919,
+      "wmape": 0.7351
+    },
+    "seasonal_naive": {
+      "bias_pct": -0.0349,
+      "wmape": 0.7505
+    },
+    "ses": {
+      "bias_pct": -0.0391,
+      "wmape": 0.6017
+    },
+    "croston_sba": {
+      "bias_pct": -0.0877,
+      "wmape": 0.5921
+    },
+    "gbm": {
+      "bias_pct": 0.0057,
+      "wmape": 0.5051
+    }
+  },
+  "mase_by_class": {
+    "smooth": {
+      "n_series": 20,
+      "zero_share": 0.042,
+      "MASE_naive": 0.991,
+      "MASE_seasonal_naive": 1.023,
+      "MASE_ses": 0.814,
+      "MASE_croston_sba": 0.811,
+      "MASE_gbm": 0.733
+    },
+    "erratic": {
+      "n_series": 122,
+      "zero_share": 0.075,
+      "MASE_naive": 1.091,
+      "MASE_seasonal_naive": 1.113,
+      "MASE_ses": 0.887,
+      "MASE_croston_sba": 0.876,
+      "MASE_gbm": 0.747
+    },
+    "intermittent": {
+      "n_series": 147,
+      "zero_share": 0.715,
+      "MASE_naive": 1.002,
+      "MASE_seasonal_naive": 1.116,
+      "MASE_ses": 1.002,
+      "MASE_croston_sba": 0.982,
+      "MASE_gbm": 1.021
+    },
+    "lumpy": {
+      "n_series": 11,
+      "zero_share": 0.32,
+      "MASE_naive": 1.093,
+      "MASE_seasonal_naive": 1.165,
+      "MASE_ses": 0.922,
+      "MASE_croston_sba": 0.929,
+      "MASE_gbm": 0.853
+    }
+  },
+  "gbm_win_rate_overall": 0.8233,
+  "gbm_win_rate_by_class": {
+    "erratic": 1.0,
+    "intermittent": 0.6395,
+    "lumpy": 1.0,
+    "smooth": 1.0
+  },
+  "selection": {
+    "naive": {
+      "wmape": 0.7351,
+      "bias": -0.2919,
+      "FVA_vs_snaive": 0.0153
+    },
+    "seasonal_naive": {
+      "wmape": 0.7505,
+      "bias": -0.0349,
+      "FVA_vs_snaive": 0.0
+    },
+    "ses": {
+      "wmape": 0.6017,
+      "bias": -0.0391,
+      "FVA_vs_snaive": 0.1487
+    },
+    "croston_sba": {
+      "wmape": 0.5921,
+      "bias": -0.0877,
+      "FVA_vs_snaive": 0.1584
+    },
+    "gbm": {
+      "wmape": 0.5051,
+      "bias": 0.0057,
+      "FVA_vs_snaive": 0.2454
+    },
+    "PER-SERIES (WMAPE gate)": {
+      "wmape": 0.5284,
+      "bias": -0.0353,
+      "FVA_vs_snaive": 0.222
+    },
+    "PER-SERIES (WMAPE + bias guard)": {
+      "wmape": 0.5612,
+      "bias": -0.0311,
+      "FVA_vs_snaive": 0.1893
+    }
+  },
+  "champion_mix": {
+    "wmape_gate": {
+      "croston_sba": 36,
+      "gbm": 139,
+      "naive": 96,
+      "seasonal_naive": 11,
+      "ses": 18
+    },
+    "bias_guarded": {
+      "croston_sba": 75,
+      "gbm": 121,
+      "naive": 42,
+      "seasonal_naive": 23,
+      "ses": 39
+    }
+  },
+  "n_no_history_fallback": 1,
+  "reconciliation": {
+    "total": {
+      "base_incoherent": 0.1087,
+      "bottom_up": 0.0616,
+      "mint_shrink": 0.0802
+    },
+    "state": {
+      "base_incoherent": 0.1419,
+      "bottom_up": 0.0817,
+      "mint_shrink": 0.1048
+    },
+    "store": {
+      "base_incoherent": 0.1427,
+      "bottom_up": 0.1226,
+      "mint_shrink": 0.142
+    },
+    "store_cat": {
+      "base_incoherent": 0.2111,
+      "bottom_up": 0.2069,
+      "mint_shrink": 0.2123
+    },
+    "store_dept": {
+      "base_incoherent": 0.2562,
+      "bottom_up": 0.2672,
+      "mint_shrink": 0.2701
+    },
+    "store_item": {
+      "base_incoherent": 0.5051,
+      "bottom_up": 0.5051,
+      "mint_shrink": 0.5068
+    }
+  },
+  "coherence_max_violation": {
+    "base_incoherent": 1519.864304,
+    "bottom_up": 0.0,
+    "mint_shrink": 0.0
+  }
+}

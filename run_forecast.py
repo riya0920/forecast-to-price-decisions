@@ -1,0 +1,168 @@
+"""Rolling-origin backtest: baselines first, GBM second, FVA reported for both.
+
+Protocol
+--------
+Six folds, 28-day horizon, origins stepping back 28 days at a time. Training is
+everything strictly before the origin. There is no random split anywhere in this
+file, because a random split on a time series is not a weak evaluation, it is a
+broken one -- it trains on the future of the very series it scores.
+
+Folds 1-3 are the SELECTION window (used to decide which method wins per series);
+folds 4-6 are the EVALUATION window. The per-series champion is therefore chosen
+without seeing the data it is scored on.
+
+Everything is reported as Forecast Value Added against seasonal naive, and the
+places the GBM LOSES to seasonal naive are printed as prominently as the places
+it wins, because on a real assortment that share is never zero and a planner
+needs to know which items to leave on the simple rule.
+
+Writes out/backtest_raw.csv.gz and out/reconciliation_raw.csv.gz; report.py turns
+those into the tables.
+"""
+from __future__ import annotations
+
+import os
+import sys
+import time
+
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import HistGradientBoostingRegressor
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from src import core, feats, hier  # noqa: E402
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DATA = os.path.join(HERE, "data")
+OUT = os.path.join(HERE, "out")
+
+H = 28
+N_FOLDS = 6
+RESID_TAIL = 180  # days of in-sample residual used to estimate MinT's W
+
+
+def fit_predict_gbm(train, test):
+    """One global model per level. Poisson loss: the target is a unit count."""
+    X = train[feats.FEATURE_COLS].to_numpy(dtype=np.float32)
+    y = train.y.to_numpy(dtype=np.float64)
+    m = HistGradientBoostingRegressor(
+        loss="poisson", max_iter=220, learning_rate=0.07, max_leaf_nodes=48,
+        min_samples_leaf=40, l2_regularization=1.0, random_state=7,
+        early_stopping=False)
+    m.fit(X, y)
+    pred = np.clip(m.predict(test[feats.FEATURE_COLS].to_numpy(dtype=np.float32)), 0, None)
+    fitted = np.clip(m.predict(X), 0, None)
+    return pred, m, fitted
+
+
+def main():
+    t0 = time.time()
+    os.makedirs(OUT, exist_ok=True)
+    df = pd.read_parquet(os.path.join(DATA, "sales.parquet"))
+    cal = pd.read_csv(os.path.join(DATA, "calendar.csv"), parse_dates=["date"])
+
+    panels = hier.build_panels(df)
+    exog = hier.build_exog(df)
+    dates = panels["store_item"].index
+    print("levels:", {k: v.shape[1] for k, v in panels.items()})
+
+    long = {}
+    for lv in hier.LEVELS:
+        long[lv] = feats.add_features(feats.long_frame(panels[lv], exog[lv], cal))
+    print("features built in %.1fs" % (time.time() - t0))
+
+    # ---- Syntetos-Boylan classification, bottom level ----
+    bottom = panels["store_item"]
+    cls = pd.DataFrame([
+        dict(key=c, adi=core.adi_cv2(bottom[c].to_numpy())[0],
+             cv2=core.adi_cv2(bottom[c].to_numpy())[1],
+             cls=core.classify(bottom[c].to_numpy()),
+             mean=float(bottom[c].mean()), zero_share=float((bottom[c] == 0).mean()))
+        for c in bottom.columns]).set_index("key")
+    cls.to_csv(os.path.join(OUT, "intermittency.csv"))
+    print("\nSyntetos-Boylan classes (bottom level, n=%d):" % len(cls))
+    print(cls.cls.value_counts().to_string())
+    print()
+
+    S, names = hier.summing_matrix(panels, df)
+    name_pos = {n: i for i, n in enumerate(names)}
+    origins = [dates[-(k * H)] for k in range(N_FOLDS, 0, -1)]
+
+    records, recon_records = [], []
+
+    for fi, origin in enumerate(origins, start=1):
+        h_dates = dates[dates >= origin][:H]
+        base_fc = np.zeros((len(names), H))
+        resid = np.zeros((len(names), RESID_TAIL))
+
+        for lv in hier.LEVELS:
+            L = long[lv]
+            ok = L[feats.FEATURE_COLS].notna().all(axis=1)
+            tr = L[(L.date < origin) & ok]
+            te = L[L.date.isin(h_dates)].copy()
+            pred, _model, fitted = fit_predict_gbm(tr, te)
+            te["gbm"] = pred
+
+            # residual tail per key, taken in one pass (not a per-key filter)
+            rdf = pd.DataFrame({"key": tr.key.to_numpy(), "r": tr.y.to_numpy() - fitted})
+            rmap = {k: g.r.to_numpy()[-RESID_TAIL:] for k, g in rdf.groupby("key", observed=True)}
+
+            for key, grp in te.groupby("key", observed=True):
+                grp = grp.sort_values("date")
+                y_true = grp.y.to_numpy(float)
+                hist = panels[lv][key]
+                y_train = hist[hist.index < origin].to_numpy(float)
+
+                fc = {"gbm": grp.gbm.to_numpy(float)}
+                for bname, fn in core.BASELINES.items():
+                    fc[bname] = fn(y_train, len(y_true))
+
+                for meth, yhat in fc.items():
+                    records.append(dict(
+                        fold=fi, level=lv, key=key, method=meth,
+                        wmape=core.wmape(y_true, yhat),
+                        bias=core.bias_pct(y_true, yhat),
+                        mase=core.mase(y_true, yhat, y_train),
+                        rmsse=core.rmsse(y_true, yhat, y_train),
+                        abs_err=float(np.abs(y_true - yhat).sum()),
+                        abs_err_h1_7=float(np.abs(y_true[:7] - yhat[:7]).sum()),
+                        abs_err_h8_28=float(np.abs(y_true[7:] - yhat[7:]).sum()),
+                        signed_err=float((yhat - y_true).sum()),
+                        actual=float(y_true.sum()),
+                        actual_h1_7=float(y_true[:7].sum()),
+                        actual_h8_28=float(y_true[7:].sum()),
+                    ))
+
+                i = name_pos[(lv, key)]
+                base_fc[i] = fc["gbm"]
+                r = rmap.get(key, np.zeros(RESID_TAIL))
+                resid[i] = np.pad(r, (max(0, RESID_TAIL - len(r)), 0))[-RESID_TAIL:]
+
+        bu = hier.bottom_up(S, base_fc[-S.shape[1]:])
+        mt = hier.mint(S, base_fc, resid, method="shrink")
+        actual = np.vstack([panels[lv][key].reindex(h_dates).to_numpy(float)
+                            for lv, key in names])
+
+        for label, fcm in (("base_incoherent", base_fc), ("bottom_up", bu),
+                           ("mint_shrink", mt)):
+            for i, (lv, key) in enumerate(names):
+                recon_records.append(dict(
+                    fold=fi, level=lv, key=key, recon=label,
+                    abs_err=float(np.abs(actual[i] - fcm[i]).sum()),
+                    signed_err=float((fcm[i] - actual[i]).sum()),
+                    actual=float(actual[i].sum())))
+            recon_records.append(dict(
+                fold=fi, level="_coherence", key="_max_violation", recon=label,
+                abs_err=hier.coherence_error(S, fcm), signed_err=np.nan, actual=np.nan))
+
+        print("fold %d  origin %s  (%.0fs elapsed)" % (fi, origin.date(), time.time() - t0))
+
+    pd.DataFrame(records).to_csv(os.path.join(OUT, "backtest_raw.csv.gz"),
+                                 index=False, compression="gzip")
+    pd.DataFrame(recon_records).to_csv(os.path.join(OUT, "reconciliation_raw.csv.gz"),
+                                       index=False, compression="gzip")
+    print("\nbacktest complete in %.0fs -> out/backtest_raw.csv.gz" % (time.time() - t0))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,136 @@
+==============================================================================
+8. PRICE ELASTICITY -- OBSERVATIONAL, AND SCORED AGAINST TRUTH
+==============================================================================
+Estimated elasticity by specification:
+category                  FOODS  HOBBIES  HOUSEHOLD
+spec                                               
+A_naive                   0.241   -0.319      0.884
+B_promo_control           0.288   -0.307      0.942
+C_promo_fe_calendar      -1.108   -0.370     -0.666
+D_exclude_promo_weeks    -1.016   -0.364     -0.635
+E_poisson_no_promo_ctrl  -3.631   -1.835     -2.808
+F_poisson_full           -2.154   -0.596     -1.409
+
+TRUE elasticity (planted by the generator):
+category
+FOODS        -2.100
+HOBBIES      -0.600
+HOUSEHOLD    -1.200
+
+Bias (estimate - truth); negative = estimated MORE elastic than reality:
+category                  FOODS  HOBBIES  HOUSEHOLD
+spec                                               
+A_naive                  +2.341   +0.281     +2.084
+B_promo_control          +2.388   +0.293     +2.142
+C_promo_fe_calendar      +0.992   +0.230     +0.534
+D_exclude_promo_weeks    +1.084   +0.236     +0.565
+E_poisson_no_promo_ctrl  -1.531   -1.235     -1.608
+F_poisson_full           -0.054   +0.004     -0.209
+
+Mean |bias| per specification:
+spec
+A_naive                     1.569
+B_promo_control             1.608
+C_promo_fe_calendar         0.585
+D_exclude_promo_weeks       0.628
+E_poisson_no_promo_ctrl     1.458
+F_poisson_full              0.089
+
+TWO DIFFERENT BIASES, PULLING IN OPPOSITE DIRECTIONS. Reading the bias
+table by row rather than by column is the whole point:
+
+  Specs A and B are not merely attenuated, they have the WRONG SIGN on
+  two of three categories -- they report demand RISING with price. With no
+  fixed effects, a pooled regression is identified off the price gap
+  BETWEEN products, not off any product's response to its own price. It is
+  comparing a $6 item to a $2 item and calling the difference elasticity.
+  Adding the promo control (B) changes essentially nothing, because the
+  problem was never the promo flag.
+
+  Specs C and D add series fixed effects, which fixes the sign but leaves
+  the estimate badly attenuated toward zero. That residue is a LIKELIHOOD
+  problem: unit sales are counts with a large zero mass, and log1p(sales)
+  is not log(sales) -- on a series that is zero most days the transform
+  crushes exactly the observations carrying the price signal. No amount of
+  further control fixes a misspecified link.
+
+  Spec E (Poisson GLM, log link, but NO promo control) is biased AWAY from
+  zero -- demand looks more elastic than it is. That IS the identification
+  problem: prices in this panel were not randomised. The generator
+  schedules promotions into weeks demand is already strong
+  (src/generate.py::_price_path), and a promotion carries a display lift
+  on top of its price cut. Low price and high demand therefore arrive
+  together, and the regression charges the co-movement to price.
+
+  Spec F (Poisson GLM + promo control + series FE + week-of-year) fixes
+  both and lands close to truth. It is the number the markdown simulator
+  uses.
+
+The honest ceiling: spec F is still OBSERVATIONAL. It recovers truth here
+because I know what confound to control for -- I wrote the generator. On
+real data there is no such guarantee, and no specification search can
+establish that the remaining price variation is as-good-as-random. That
+takes a price experiment: randomised price cells across matched stores.
+Section 9 prices exactly what not having run one costs.
+
+==============================================================================
+9. MARKDOWN SIMULATOR -- DECIDE ON THE ESTIMATE, SCORE ON THE TRUTH
+==============================================================================
+Clearance window 42 days, 3 phases of 14 days, salvage 5% of ticket,
+demand half-life 21 days. Inventory = 2.2x expected full-price demand,
+so doing nothing leaves more than half the stock on the floor.
+
+Three decision-makers price the same inventory:
+  GOOD    -- decides on spec F (Poisson GLM), the best observational estimate
+  BAD     -- decides on spec A (naive log-log OLS), the portfolio default
+  ORACLE  -- decides knowing the world's true elasticity
+All three are SCORED in the same world, at its true elasticity.
+
+                     world_e  rev_none   rev_bad  rev_good  rev_oracle  good_vs_none_pct  good_vs_flat_pct  bad_spec_cost_pct  good_spec_cost_pct  sellthru_good  sellthru_none sched_good sched_oracle
+category  scenario                                                                                                                                                                                     
+FOODS     -30%         -1.47  52645.23  52645.23  60008.50    63360.93             13.99              0.02              16.91                5.29          76.72          45.37   30/30/30     40/40/40
+          true         -2.10  52645.23  52645.23  73767.75    74089.27             40.12              0.04              28.94                0.43          96.08          45.37   30/30/30     30/30/40
+          +30%         -2.73  52645.23  52645.23  76576.81    81083.39             45.46             -0.02              35.07                5.56         100.00          45.37   30/30/30     20/30/30
+HOUSEHOLD -30%         -0.84 199443.47 199443.47 178193.34   199443.47            -10.65             -0.80               0.00               10.65          71.98          45.39   40/40/50        0/0/0
+          true         -1.20 199443.47 199443.47 212406.59   213493.80              6.50              0.32               6.58                0.51          87.81          45.39   40/40/50     40/50/50
+          +30%         -1.56 199443.47 199443.47 240755.95   248592.58             20.71             -3.15              19.77                3.15         100.00          45.39   40/40/50     40/40/40
+HOBBIES   -30%         -0.42 300165.29 300165.29 300165.29   300165.29              0.00              0.00               0.00                0.00          45.39          45.39      0/0/0        0/0/0
+          true         -0.60 300165.29 300165.29 300165.29   300165.29              0.00              0.00               0.00                0.00          45.39          45.39      0/0/0        0/0/0
+          +30%         -0.78 300165.29 300165.29 300165.29   300165.29              0.00              0.00               0.00                0.00          45.39          45.39      0/0/0        0/0/0
+
+WHAT THIS TABLE SAYS, in the order a merchant would ask:
+
+1. Markdown depth is a function of elasticity, and the optimiser works
+   that out without being told. Read sched_oracle down the categories:
+     FOODS      true e=-2.10  ->  30/30/40   (sell-through 96% vs 45% at full price)
+     HOUSEHOLD  true e=-1.20  ->  40/50/50   (sell-through 88% vs 45% at full price)
+     HOBBIES    true e=-0.60  ->  0/0/0   (sell-through 45% vs 45% at full price)
+   An inelastic category should not be marked down at all -- cutting price
+   there gives away margin on units that were going to sell anyway. A
+   markdown budget spread evenly across categories spends most of itself
+   where it repays least.
+
+2. THE COST OF THE ELASTICITY ESTIMATE, IN DOLLARS. bad_spec_cost_pct is
+   the revenue given up by a team that estimated elasticity the way most
+   portfolio projects do -- log-log OLS on a zero-heavy count series:
+     FOODS      bad spec  28.94% of clearance revenue   |  good spec  0.43%
+     HOUSEHOLD  bad spec   6.58% of clearance revenue   |  good spec  0.51%
+     HOBBIES    bad spec   0.00% of clearance revenue   |  good spec  0.00%
+   The attenuated estimate makes demand look inelastic, so the BAD team
+   marks down too little or not at all and eats the salvage. That number
+   is the business case for the price experiment, priced.
+
+3. SENSITIVITY (elasticity +/-30% around truth):
+     FOODS      good-vs-no-markdown across worlds: +13.99%, +40.12%, +45.46% -> DECISION HOLDS
+     HOUSEHOLD  good-vs-no-markdown across worlds: -10.65%, +6.50%, +20.71% -> DECISION FLIPS
+     HOBBIES    good-vs-no-markdown across worlds: +0.00%, +0.00%, +0.00% -> DECISION HOLDS
+   Where it holds, the recommendation survives a 30% elasticity error even
+   though the revenue forecast does not -- the level moves, the decision
+   does not. Where it flips, the honest answer is that the category cannot
+   be priced off observational data and needs a test before margin is bet.
+
+4. good_vs_flat_pct is small throughout. That is the honest size of the
+   phasing win: with a stated demand half-life, most of the value is in
+   marking down AT ALL, not in the shape of the path. A markdown-
+   optimisation project that headlines the phasing gain and hides the
+   mark-down-or-not gain has its emphasis backwards.
