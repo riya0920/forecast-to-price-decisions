@@ -1,273 +1,357 @@
 # ML-1 — Forecast-to-Price Decision System
 
-**Roughly 50% of the spec.** The machinery the hiring-manager doc calls the
-differentiator, plus the two biggest gaps the first pass named: **prediction
-intervals and the replenishment handoff** (the spec's own question, previously
-answered only in prose), and the **reconciliation survey** that had been one
-method rather than a comparison.
+**Complete against the spec.** Rolling-origin backtest with FVA discipline, a
+deep arm, five reconciliation methods, calibrated quantiles converted to
+**lead-time** demand, elasticity at three levels of granularity including
+**cross-price**, a **multi-item MILP** markdown optimiser, and an **HTTP service**
+a planner can actually call.
 
-Every number below was produced by running the code in this directory. Nothing
-is quoted from a paper or a leaderboard.
+Every number below was produced by running the code in this directory. Nothing is
+quoted from a paper or a leaderboard, and several of the headline results are
+negative.
 
 ```bash
-python src/generate.py     # ~4s     build the panel
-python run_forecast.py     # ~20min  6-fold backtest: point + 5 quantiles + 3 MinT variants
-python report.py           # ~25s    the FVA tables
-python run_pricing.py      # ~3min   elasticity + markdown
-python -m pytest tests -q  # 26 tests
+python src/generate.py       # ~8s     build the panel
+python run_forecast.py       # ~18min  6-fold backtest: LightGBM + N-BEATS + 5 quantiles + 5 reconciliations
+python report.py             # ~25s    the FVA tables
+python run_advanced.py       # ~15s    pooled gate, lead-time demand, probabilistic reconciliation
+python run_pricing.py        # ~4min   elasticity (category/item/segment/cross) + markdown MILP
+uvicorn serve:app --port 8011   #       the planner service
+python -m pytest tests -q    # 64 tests
 ```
 
-## The data
+300 item×store series, 1,460 days, 353 series across six hierarchy levels.
 
-M5 is not downloadable in this offline environment, so `src/generate.py` builds a
-panel with M5's *structure* and a **known data-generating process**:
+## No substituted dependencies
 
-| | |
-|---|---|
-| 60 items × 5 stores × 1,460 days | 438,000 rows, 300 bottom series |
-| hierarchy | item → dept → category, store → state, 353 series over 6 levels |
-| calendar | SNAP days per state, Thanksgiving/Black Friday/Christmas run-ups, Super Bowl, July 4 |
-| zeros | 39.6% of observation-days |
-| planted truth | per-category price elasticity, promo display lift |
+Both earlier passes carried a table of stand-ins. It is gone. **LightGBM**,
+**statsmodels**, **PuLP**, **PyTorch** and **FastAPI** are the real libraries now,
+and the honest report on the swap is that *the accuracy numbers barely moved*.
+That is worth stating plainly: the substitutions were correctly described as
+low-impact, and swapping them out confirmed rather than overturned that. Anyone
+claiming a library swap bought them a large accuracy gain on tabular count data
+should be asked what else changed at the same time.
 
-Knowing the truth is the point. It turns the pricing half from an assertion into
-a scored exercise, and it lets the endogeneity be *measured* instead of
-disclaimed — promotions are deliberately scheduled into weeks demand is already
-strong, exactly as a merchant would.
+What the real libraries did buy is **inference** — statsmodels gives standard
+errors, and half the elasticity findings below are decided on whether a dispersion
+exceeds its own standard error, which is a question you cannot ask of a point
+estimate.
 
 ## What the backtest found
 
-Six folds, 28-day horizon, rolling origin. No random split anywhere.
-
-**WMAPE by level, evaluation folds** (`out/forecast_report.txt` §1):
-
-| level | seasonal naive | croston SBA | GBM | FVA vs snaive |
-|---|---|---|---|---|
-| total | 0.279 | 0.299 | **0.109** | +0.171 |
-| store | 0.336 | 0.328 | **0.143** | +0.193 |
-| store×dept | 0.479 | 0.405 | **0.256** | +0.222 |
-| store×item | 0.751 | 0.592 | **0.505** | +0.245 |
-
-**Syntetos–Boylan classification** of the 300 bottom series: 147 intermittent,
-122 erratic, 20 smooth, 11 lumpy. MAPE is not implemented anywhere in this repo
-— on a panel that is 40% zeros it is not a weak metric, it is an undefined one.
-The intermittent bucket is scored on MASE, where the GBM reads **1.021**: it is
-*worse than saying "same day last week"* on those series, which is stated in the
-table rather than averaged away.
-
-### Three results I did not expect
-
-**1. Per-series model selection loses to just deploying the GBM everywhere.**
-The textbook answer to "your model beats the baseline overall but loses on 18% of
-series" is *select per series*. Measured here, that answer is wrong:
-
-| policy | WMAPE | bias |
-|---|---|---|
-| seasonal naive | 0.751 | −3.5% |
-| GBM everywhere | **0.505** | +0.6% |
-| per-series, WMAPE gate | 0.528 | −3.5% |
-| per-series, WMAPE + bias guard | 0.561 | −3.1% |
-
-Two mechanisms, both visible in the output. WMAPE *rewards a degenerate forecast*
-on intermittent demand — on a mostly-zero series "last value" is usually zero, so
-naive predicts all-zeros, scores WMAPE ≈ 1.0, and cannot be beaten downward by
-anything that ever puts a unit on the wrong day. The gate duly hands 96 series to
-naive, whose standalone bias is **−29%**: a replenishment system that under-orders
-every slow mover it owns. And the gate is estimated on 3 folds × 28 days of a
-series that sells a unit every third day, so the choice is mostly noise.
-
-**2. MinT loses to bottom-up at every level here** — all three weightings of it,
-as the second pass confirms. Bottom-up totals 0.062 WMAPE against MinT-shrink's
-0.080 and MinT-OLS's 0.097. The aggregate of the bottom-level forecasts is better
-than any directly-fitted aggregate model (errors cancel on the way up), so
-blending the weaker aggregates back in costs accuracy. All are exactly coherent
-(max violation 0.000 units); the incoherent base forecasts violate by 1,520 units.
-
-**3. Naive log-log elasticity gets the *sign* wrong.** Six specifications scored
-against planted truth:
-
-| spec | FOODS | HOUSEHOLD | HOBBIES | mean abs bias |
-|---|---|---|---|---|
-| **truth** | −2.10 | −1.20 | −0.60 | — |
-| A: naive log-log OLS | **+0.24** | **+0.88** | −0.32 | 1.57 |
-| C: + series FE + calendar | −1.11 | −0.67 | −0.37 | 0.59 |
-| E: Poisson GLM, no promo control | −3.63 | −2.81 | −1.84 | 1.46 |
-| F: Poisson GLM + promo + FE + WOY | −2.15 | −1.41 | −0.60 | **0.09** |
-
-Two different biases pulling opposite ways. Without fixed effects the regression
-is identified off the price gap *between products* — comparing a $6 item to a $2
-item and calling it elasticity. Adding FE fixes the sign but leaves heavy
-attenuation, because `log1p(sales)` is not `log(sales)` and on a zero-heavy count
-series the transform crushes the observations carrying the signal. A Poisson log
-link fixes that; *without* the promo control it then overshoots, which is the
-genuine endogeneity — promotions land in strong weeks and carry a display lift.
-
-## The markdown decision, priced
-
-The optimiser **decides** on an observational estimate and is **scored** at the
-world's true elasticity, which is the real situation a pricing team is in.
-
-| category | true e | oracle schedule | sell-through | cost of deciding on spec A | on spec F |
+| level | seasonal naive | croston SBA | N-BEATS | LightGBM | FVA |
 |---|---|---|---|---|---|
-| FOODS | −2.10 | 30/30/40 | 96% vs 45% | **28.9%** of clearance revenue | 0.4% |
-| HOUSEHOLD | −1.20 | 40/50/50 | 88% vs 45% | 6.6% | 0.5% |
-| HOBBIES | −0.60 | 0/0/0 | 45% vs 45% | 0% | 0% |
+| total | 0.2620 | 0.3025 | — | **0.1034** | +0.1585 |
+| store | 0.3063 | 0.3107 | — | **0.1211** | +0.1852 |
+| store×dept | 0.4434 | 0.3772 | — | **0.2298** | +0.2136 |
+| store×item | 0.7729 | 0.6093 | 0.5656 | **0.5291** | +0.2438 |
 
-Markdown depth falls out of elasticity without being told: the inelastic category
-should not be marked down at all, because there you give away margin on units
-that were going to sell anyway. And the *estimation method* is worth 28.9% of
-clearance revenue on FOODS — that number is the business case for a price
-experiment, in dollars.
+WMAPE, evaluation folds 4–6. MAPE is not in this repo: 32% of observation-days
+are zero, so a per-observation percentage error divides by zero on a third of the
+evaluation set.
 
-Sensitivity at ±30% elasticity: FOODS and HOBBIES **hold**, HOUSEHOLD **flips**
-(the recommended markdown becomes −10.7% in the low-elasticity world). That flip
-is reported by the code, not by me; it is the honest answer that HOUSEHOLD cannot
-be priced off this data.
+### The deep arm loses, and its bias is the reason to care
 
-Phasing beats the best flat discount by well under 1% throughout. Most of the
-value is in marking down *at all*, and a project that headlines the phasing gain
-has its emphasis backwards.
+N-BEATS at the bottom level: **0.5656 WMAPE against the GBM's 0.5291** — and
+**−20.6% bias against the GBM's +0.25%**.
 
-## Two modelling defects I hit and fixed
+The WMAPE gap is the boring half. A model that is a fifth low on every order is
+not slightly worse than an unbiased one, it is a different and worse decision, and
+it fails for exactly the reason `naive` does: mean-scaled absolute error on
+zero-heavy series *rewards forecasting low*, because a low forecast is right on
+the many zero days and wrong only on the few that sell.
 
-Kept because they are the evidence the simulator is doing arithmetic rather than
-theatre:
+That connects two sections. The per-series gate hands N-BEATS **116 series** on a
+plain WMAPE gate and only **69** once a bias guard is on. The gate was never
+finding a better model for those series; it was finding the model that games the
+metric hardest — and it took two different architectures to make that visible.
 
-- **The optimiser refused to discount anything.** Correct economics for what I
-  had built: salvage at 15% of ticket beats the margin on an incremental unit for
-  an inelastic item. Real end-of-season goods are jobbed out near zero — salvage
-  is now 5% and stated as a merchant-supplied input.
-- **Phased markdown could not beat a flat one.** Also correct: with a constant
-  demand rate and a multiplicative price effect, a single price is *provably*
-  optimal and phasing can only tie. Clearance markdowns are phased because
-  end-of-season demand decays. The simulator now decays it (21-day half-life,
-  stated as an assumption and sensitivity-tested), and phasing earns a real if
-  small win.
+It also is not evidence that deep forecasting loses. 300 series is far below where
+global deep models start paying, and *that* is the finding for anyone deciding
+whether to staff the work.
 
-Also fixed: the per-series section originally dropped series with no sales in the
-selection window, flattering the policy by removing its hardest cases. The gate
-now falls back to the incumbent and a test asserts no series is dropped.
+## Three results I did not expect
 
-## Tests (`pytest tests -q`, 26 passing)
+- **Per-series model selection LOSES to one global model** (0.5451 vs 0.5291), and
+  so does the bias-guarded version (0.5546). The textbook answer to "your model
+  loses on 14% of series" is *select per series*; measured, that answer is wrong
+  here.
+- **Naive log-log elasticity gets the SIGN wrong** — +0.211 for FOODS against a
+  truth of −2.100. Without fixed effects the regression is identified off the
+  price gap *between* products. A Poisson GLM with fixed effects recovers −2.205.
+- **Bottom-up beats all three MinT variants** at every level but one. MinT uses
+  information bottom-up discards and *should* win; it doesn't, because the
+  directly-fitted aggregates it blends back in are worse than the aggregated
+  bottom level (total 0.1034 vs 0.0560).
 
-The load-bearing one corrupts every sale at or after the forecast origin
-(`×1000 + 777`), rebuilds the features, and asserts the horizon feature rows are
-bit-identical. If any lag or rolling window reached forward, it would fail. The
-rest cover WMAPE/MASE against hand computation, the SBA bias correction being
-strictly below classic Croston, the Syntetos–Boylan quadrants, MinT output being
-coherent from a deliberately incoherent start, and the optimiser refusing to mark
-down inelastic demand.
+## Reconciliation: five methods, including middle-out
 
-## Second pass: what you actually hand replenishment
+| level | base (incoherent) | bottom-up | middle-out | MinT OLS | MinT WLS | MinT shrink |
+|---|---|---|---|---|---|---|
+| total | 0.1034 | **0.0560** | 0.0593 | 0.0886 | 0.0634 | 0.0634 |
+| state | 0.1145 | **0.0698** | 0.0723 | 0.1032 | 0.0792 | 0.0792 |
+| store | 0.1211 | **0.1050** | 0.1088 | 0.1352 | 0.1127 | 0.1127 |
+| store×cat | 0.1859 | **0.1758** | 0.1758 | 0.1992 | 0.1811 | 0.1811 |
+| store×dept | 0.2350 | 0.2350 | **0.2298** | 0.2520 | 0.2359 | 0.2359 |
+| store×item | 0.5291 | 0.5291 | 0.5501 | 0.5619 | **0.5290** | 0.5290 |
 
-The spec asks it directly: *replenishment wants one number per item×store×day,
-and the model produces a distribution — what do you hand them?* The first pass
-answered in prose and said the code couldn't do it. Now it can: a separate
-quantile GBM per service level at the bottom level.
+All five are exactly coherent (max violation 0.000 units) against the incoherent
+base's 1,101-unit violation.
 
-| tau | coverage | mean forecast | implied cost ratio |
+**Middle-out wins at exactly one level — the one it forecasts directly** — and is
+worst at the bottom, because item shares are held fixed across the horizon. That
+assumption *is* the method and it is also its failure mode: a promotion changes
+precisely those shares, so middle-out is at its weakest exactly when the forecast
+matters most. Large retailers run it anyway because the middle level is where
+series are smooth enough to model well; this table is the price of that
+convenience, measured.
+
+## Quantiles — and a defect this project shipped for two passes
+
+**5 of 5 quantiles win their own pinball loss.** Coverage: 0.905 at τ=0.90, 0.948
+at τ=0.95, 0.976 at τ=0.98.
+
+Then the fan was checked for **crossing**, and it crosses on **0.96% of
+item-days**: the fitted P90 lands *above* the fitted P95. Five independently
+fitted quantile models have nothing coupling them, so nothing stops it. This is
+not a numerical wart — an order system reading a crossed fan orders **more stock
+for a lower service level**, inverting the meaning of the dial a planner is
+turning.
+
+Monotone rearrangement (sorting the fan at each point) removes it entirely and is
+applied at the serving boundary. The theory says sorting is provably no worse
+because the true quantile function is monotone; the table says **4 of 5 quantiles
+improved and one got worse by 0.00044** against a loss of 0.680. That gap between
+"provably no worse" and what a finite sample actually does is exactly the kind of
+thing that gets quoted without the word *expected* in front of it, so it is
+reported rather than rounded away.
+
+## Lead-time demand — the conversion the last pass said it could not do
+
+`P95(D₁+…+D_L) ≠ P95(D₁)+…+P95(D_L)`. Three answers, L=28, τ=0.95:
+
+| method | assumes | value | vs bootstrap |
 |---|---|---|---|
-| 0.50 | 0.6130 | 4.44 | 1× |
-| 0.75 | 0.7869 | 7.06 | 3× |
-| 0.90 | **0.9090** | 9.88 | 9× |
-| 0.95 | **0.9573** | 11.83 | 19× |
-| 0.98 | **0.9798** | 14.16 | 49× |
+| sum of daily quantiles | perfect dependence | 289.9 | **1.75×** |
+| block bootstrap of error paths | whatever the data has | 165.8 | — |
+| iid normal, σ√L | independence | 158.4 | 0.96× |
 
-**5 of 5 quantiles win their own pinball loss** — each forecast minimises the
-loss for the tau it was fitted to, which is the diagonal that proves the set is
-calibrated rather than merely ordered.
+**The two shortcuts err in opposite directions.** Which one is worse is decided by
+the autocorrelation of the forecast errors, and here it is measured: **lag-1
+ρ = +0.048**, essentially zero. So on *this* panel the iid formula is nearly right
+and sum-of-quantiles is wildly wrong — but stating that as a general result would
+be the easy mistake. With strongly autocorrelated errors the iid version is the
+dangerous one, because it under-covers in exactly the clustered weeks that cause
+the stockout.
 
-**Why pinball and not MAE:** MAE is minimised by the *median*, so scoring a P90
-on MAE would rank it worse than the P50 by construction — measuring the wrong
-thing and calling the right answer wrong. A test demonstrates exactly that
-inversion.
+The bootstrap's value is therefore not that it won by a lot. It is that **it did
+not need to be told which regime it was in.** A planner choosing the iid formula
+is making an assumption about autocorrelation whether they know it or not.
 
-**The P50 over-covers (0.613 vs 0.50)** and that is explained rather than
-glossed: coverage counts `actual ≤ forecast`, and on a series that is zero 40% of
-the time the median forecast is often *zero*, so every zero day counts as covered
-because `0 ≤ 0`. It's a property of coverage as a diagnostic on discrete
-zero-inflated data, not a miscalibrated model — the pinball diagonal confirms the
-P50 is the best P50 available. The same statistic that is informative at tau=0.95
-is nearly meaningless at 0.50 here.
+**This closes the DATA-2 join.** DATA-2 sized safety stock from historical mean
+and sd, named forecast integration as its most valuable missing piece, and then
+watched its negative-binomial experiment fail for precisely this reason — an iid
+marginal, however well specified, cannot produce the right lead-time quantile.
+This is the distribution it needed.
 
-**So what do you hand them?** Not the mean — ordering to the mean means being
-short about half the time, and the two errors don't cost the same. You hand them
-the quantile the service target implies, and the newsvendor result says which:
+## Probabilistic reconciliation — why the P95s should *not* add up
 
-```
-q* = Cu / (Cu + Co)
-```
+400 joint bottom-level draws with the cross-series residual correlation preserved,
+pushed through the summing matrix. Every sample path is coherent by construction.
 
-Read that column backwards and a service level stops being a policy and becomes a
-claim someone has to defend: **a 95% service target asserts that understocking
-costs 19× what overstocking costs.** That reframing is the useful half — it turns
-a service-level argument into a cost argument.
+| level | Σ children's P95 | own P95 | ratio |
+|---|---|---|---|
+| total | 83,060 | 45,363 | **1.83** |
+| state | 83,060 | 46,648 | 1.78 |
+| store | 83,060 | 49,423 | 1.68 |
+| store×cat | 83,060 | 55,378 | 1.50 |
+| store×dept | 83,060 | 59,636 | 1.39 |
 
-The mean forecast is 4.44 units/day and the P95 is 11.83 — the gap is the safety
-stock the service level buys, **166% more inventory** than ordering to the mean.
+The last README called it a gap that "the P95s do not add up even though the point
+forecasts do". **They should not.** A quantile is not a linear functional of a
+distribution; forcing the store P95 to equal the sum of its items' P95s asserts
+that every item in the store has its bad week simultaneously. Adding up is a
+property of *realisations*, which is why the fix is to reconcile sample paths and
+read quantiles off the coherent set.
 
-**Honest limit:** these are *daily* quantiles, and replenishment needs the
-quantile of demand over the **lead time**, which is not the sum of daily quantiles
-— summing them overstates, because the days don't all go wrong together.
-Converting one to the other needs the dependence structure across days, which is
-exactly what DATA-2's negative-binomial experiment independently found it was
-missing. Neither project has it, and arriving at the same gap from two directions
-is at least consistent.
+The ratio grows toward the top of the hierarchy: the more series you pool, the
+more the independent part of their errors cancels. Aggregate safety stock sized by
+summing item safety stocks is over-provisioned by that ratio — the argument for
+holding buffer centrally rather than at the leaf, with a number on it.
 
-## Second pass: reconciliation as a survey, not one method
+## The pooled-class selection gate
 
-| level | base (incoherent) | bottom-up | MinT OLS | MinT WLS | MinT shrink |
-|---|---|---|---|---|---|
-| total | 0.1087 | **0.0616** | 0.0971 | 0.0802 | 0.0802 |
-| state | 0.1419 | **0.0817** | 0.1232 | 0.1048 | 0.1048 |
-| store | 0.1427 | **0.1226** | 0.1560 | 0.1420 | 0.1420 |
-| store×dept | 0.2562 | **0.2672** | 0.2851 | 0.2700 | 0.2701 |
-| store×item | 0.5051 | **0.5051** | 0.5646 | 0.5068 | 0.5068 |
+The report recommended it and never built it. Per-series selection lost badly; the
+diagnosis was that a champion chosen from three folds of one intermittent series
+is chosen on noise. Pooling to the intermittency **class** makes each decision on
+~1,350 rows instead of ~18.
 
-The three MinT variants differ **only** in the weight matrix they invert: OLS
-treats every series' error as equally important (obviously false across a
-hierarchy spanning a 300-unit total and a 0.2-unit item, and included to show how
-false); WLS scales by each series' own residual variance; shrink also uses the
-*correlation* between series — the thing that makes MinT better in principle and
-hardest to estimate from 353 series and 180 residual days.
+| gate | decisions | WMAPE | bias |
+|---|---|---|---|
+| global | 1 | **0.1598** | +0.0025 |
+| per class | 4 | 0.1603 | −0.0233 |
+| per series | 300 | 0.2040 | −0.0353 |
 
-**Bottom-up wins at every level, and that's the honest result.** MinT *should*
-beat it — it uses information bottom-up discards. The reason it doesn't is
-visible in the `base` column: directly-fitted aggregate models are worse than
-aggregating the bottom-level forecasts (total 0.11 vs 0.06) because errors cancel
-on the way up. MinT blends those weaker aggregates back in, and blending in a
-worse signal makes things worse. That is not a bug in MinT — it is MinT correctly
-weighting information that happens not to be worth having on this hierarchy.
+**Pooling recovers almost the entire loss (0.2040 → 0.1603) and still does not
+beat the global model.** That is the honest result and it is more useful than a
+win would have been: it says the loss from per-series selection was *noise*, not a
+missing signal, because averaging over 75× more data removed nearly all of it and
+found nothing underneath.
 
-All four reconciliation methods are exactly coherent (max violation 0.000 units)
-against the incoherent base's 1,520-unit violation.
+The bias column is why this gate is not just the old one with bigger groups.
+Candidates whose selection-window bias exceeds ±15% are rejected before accuracy
+is considered — the first gate's failure was not inaccuracy, it was handing 96
+series to a method running −29% bias.
 
-## The other ~50% — what is NOT here
+## Elasticity, at three levels of granularity
 
-- **No serving artifact.** The spec asks for a planner-facing view (item×store →
-  forecast, intervals, FVA, recommended markdown path). There is no UI and no API.
-- **Quantiles are daily, not lead-time** (see above) — the conversion needs a
-  cross-day dependence model neither this project nor DATA-2 has.
+### Per category — six specifications scored against planted truth
+
+| spec | FOODS | HOUSEHOLD | HOBBIES |
+|---|---|---|---|
+| **TRUTH** | **−2.100** | **−1.200** | **−0.600** |
+| A naive log-log | +0.211 | −0.398 | +0.055 |
+| C promo + FE + calendar | −1.209 | −0.721 | −0.323 |
+| E Poisson, no promo control | −3.763 | −2.209 | −1.719 |
+| **F Poisson, full** | **−2.205** | **−1.027** | **−0.595** |
+
+Spec A has the **wrong sign** on two of three categories. Spec E is biased *away*
+from zero because promotions are scheduled into strong weeks and carry a display
+lift; spec F controls both and lands close.
+
+### Per item — is heterogeneity *estimable*, not just real?
+
+The generator now draws each item's own elasticity around its category's, so this
+is a question with a right answer instead of a fishing expedition. 60 items, one
+Poisson GLM each:
+
+| estimator | MAE | within-category MAE | within-category corr | sd of estimates |
+|---|---|---|---|---|
+| raw per item | 0.2356 | 0.2388 | 0.641 | 0.834 |
+| **shrunk to category** | **0.1558** | **0.1484** | **0.739** | 0.732 |
+| category mean only | 0.2182 | 0.1957 | 0.000 | 0.711 |
+
+True sd of per-item elasticity: 0.707.
+
+**Shrinkage wins**, so the heterogeneity is not merely real but recoverable. Two
+things are worth reading carefully. The raw estimates have sd 0.834 against a true
+0.707 — **1.18× the real dispersion**, so some of what a per-item table shows as
+"this SKU is more elastic" is sampling noise a merchant would price on anyway. And
+the *pooled* correlation with truth is 0.92 for every estimator including the
+category mean, because category elasticities are −2.1/−1.2/−0.6 and almost all the
+variance is between categories. The within-category column is the one that answers
+"can I price this item differently from its neighbour on the same shelf" — and
+there the category mean scores exactly 0.000 by construction.
+
+### Cross-price — and the confound that eats it
+
+| spec | own | cross | true cross |
+|---|---|---|---|
+| G daily, event + weekday FE (FOODS) | −2.237 | **0.423** | 0.350 |
+| G daily, event + weekday FE (HOUSEHOLD) | −1.130 | **0.299** | 0.350 |
+| G daily, event + weekday FE (HOBBIES) | −0.704 | **0.493** | 0.350 |
+| H same, **no** calendar FE | −2.190 | **0.117** | 0.350 |
+| I rival term omitted entirely | −2.181 | — | 0.350 |
+
+Spec G recovers cross-price within 1.4 standard errors on all three categories.
+
+**Drop the event and weekday fixed effects and it collapses to 0.117 — attenuated
+by 72%.** It is the same confound this project already documents for own-price,
+arriving somewhere new: promotions are scheduled into strong periods, what makes a
+period strong is *events and weekday*, and those are shared across the whole
+department. A rival's promotion lands disproportionately on days my demand is high
+for reasons unrelated to the rival, and the regression charges that co-movement to
+the cross term with a negative sign.
+
+**Week-of-year fixed effects do not fix it** — they are in *both* specifications.
+Thanksgiving moves within the ISO week from year to year and weekday variation is
+inside the week by definition, so a weekly panel has already destroyed the
+variation the control needs. That is why this one specification is daily while
+every other elasticity here is weekly: **aggregation is not a neutral performance
+choice when the confound lives inside the bucket.**
+
+## Markdown: multi-item, shared inventory, a budget, cannibalisation
+
+A department of 10 items, 42-day clearance in 3 phases, two items sharing one
+stock pool, solved as a sequence of exact MILPs with the rival price index held
+fixed and updated between solves. Every row is **scored in the same true world**;
+only what the optimiser *believed* differs.
+
+| policy | mean depth | revenue | markdown spend | leftover |
+|---|---|---|---|---|
+| ignores cannibalisation | 0.197 | $21,313 | $4,794 | 888 |
+| uses estimated cross | 0.240 | $21,619 | $6,217 | 501 |
+| uses **true** cross | 0.220 | $21,523 | $5,616 | 660 |
+| true cross + 12% budget | 0.133 | $21,500 | **$3,598** | 1,273 |
+
+**Modelling cannibalisation makes the optimiser discount MORE, not less** — the
+opposite of the textbook direction, and worth stating rather than smoothing over.
+With substitutes, a department-wide markdown partly cancels itself because every
+item's rivals get cheaper at the same time, so reaching the same clearance volume
+requires going *deeper* than a single-item view suggests. The single-item
+optimiser is wrong in both directions depending on whether it is pricing one item
+or a shelf.
+
+**The estimated-cross row beats the true-cross row, and that is not a finding
+about estimation.** A schedule chosen with the true elasticity should be
+unbeatable in the true world, so a negative gap means the optimiser and the scorer
+do not share a model — and they do not. The MILP constrains *total* season demand
+to inventory, which is linear and therefore solvable; the scorer runs the season
+phase by phase and caps each phase at what is left, which is the real dynamic and
+is not linear. The $96 gap is the price of the linearisation, and it is larger
+than the estimation error it was supposed to measure — which is exactly why it is
+reported instead of being quietly presented as one. **The load-bearing comparison
+in that table is row 1 against row 3.**
+
+The cost of a bad elasticity estimate, priced: **28.98%** of FOODS clearance
+revenue for a team using log-log OLS, against 0.52% for the Poisson spec.
+
+## The planner service
+
+`uvicorn serve:app --port 8011`
+
+- `GET /forecast/{key}` — point forecast, the rearranged quantile fan, the
+  intermittency class, and the FVA against seasonal naive. FVA travels *with* the
+  forecast because an absolute WMAPE is not something a planner can act on.
+- `POST /order` — the single number replenishment asked for, returned alongside
+  `implied_cost_ratio`: a 95% target *is* the claim that understocking costs 19×
+  overstocking. The response also carries the caveat that summed daily quantiles
+  assume perfect cross-day dependence, and points at the measurement of how much
+  that overstates.
+- `POST /override` — a planner disagreeing, with an author and a **required**
+  reason. Overrides are the largest source of forecast value *destruction* in real
+  planning systems and the only way anyone finds out is by logging them and
+  scoring them later. A 422 on a missing reason is the point, and a test asserts it.
+- `GET /markdown/{key}` — the clearance path for one item, priced with that item's
+  own elasticity, served from the same table the pricing report scores.
+
+## Bugs this pass caught
+
+- **The quantile fan crossed on 0.96% of item-days** and had done since the fan
+  was built. Nothing in five independent fits couples them.
+- **`SERVICE_LEVELS` was read one line before it was defined**, inside a `try`
+  whose broad `except` swallowed the `NameError` into a silent `ok=False`. The
+  service reported "artifacts missing" while the artifacts were fine.
+- **The MILP fixed point was reported as non-converged for every policy**, because
+  convergence was tested on the damped continuous rival index rather than on the
+  discrete schedule. The solver had settled; the test had not noticed.
+- **The report claimed neither this project nor DATA-2 had the cross-day
+  dependence structure.** True when written, false once `run_advanced.py` existed,
+  and the kind of stale cross-reference that survives three passes because nobody
+  re-reads the other project's README.
+
+## What is deliberately not here
+
+- **No real dataset.** M5 is not downloadable here, and the generator is the point
+  anyway: elasticity, cross-price and per-item heterogeneity are *scored* against
+  planted truth, which no public dataset permits.
+- **The generator is a model.** Its demand is a gamma-mixed Poisson with a
+  multiplicative price effect, which is close to what the GBM assumes — so every
+  method here does better than it would on real data.
 - **Quantiles are bottom-level only.** Running five extra models per level per
-  fold would triple an already 20-minute backtest to produce numbers nobody
-  orders from.
-- **No global deep model** (the optional DeepAR/N-BEATS arm).
-- **No middle-out reconciliation and no probabilistic reconciliation** — the
-  quantiles are not reconciled across the hierarchy at all, so the P95s do not
-  add up even though the point forecasts do.
-- **The pooled-class selection gate** the report recommends (gate estimated per
-  intermittency class rather than per series) is described and not built.
-- **Elasticity is per category**, not per item or per segment, and there is no
-  cross-price elasticity, so no cannibalisation in the markdown optimiser.
-- **The markdown optimiser is single-item.** No shared inventory, no category
-  budget constraint, no competitor response.
-- LightGBM is not installed; `HistGradientBoostingRegressor` stands in (same
-  histogram algorithm, Poisson loss available). statsmodels is not installed, so
-  OLS with HC0 errors is written out in `run_pricing.py`.
-
-**"What would you hand replenishment?"** — answered in code now, not prose: the
-quantile the item's service target implies, with the calibration to back it and
-the cost ratio that target is asserting. The prerequisite everyone skips still
-holds and still matters: the point forecast is unbiased (+0.6%) *before* anyone
-sizes a buffer on top of it, because safety stock sized on sigma does not cover a
-drift.
+  fold would triple the backtest to produce numbers nobody orders from.
+- **No competitor response** in the markdown optimiser, and no network
+  optimisation — it scores one department at a time with no view of the orders or
+  inventory behind it.
+- **The service has no auth, no rate limiting and no model registry.** It is a
+  real HTTP surface over real artifacts, not a production deployment.

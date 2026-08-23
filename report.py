@@ -51,7 +51,11 @@ def main():
     emit("=" * 78)
     emit("1. WMAPE BY HIERARCHY LEVEL  (evaluation folds 4-6, 28-day horizon)")
     emit("=" * 78)
-    methods = ["naive", "seasonal_naive", "ses", "croston_sba", "gbm"]
+    # nbeats runs at the BOTTOM LEVEL ONLY, so it is NaN above store_item.
+    # That is a real property of the arm and not a gap to paper over: a
+    # global deep model over series that share a shape has nothing to pool
+    # across at the total, where there is exactly one series.
+    methods = ["naive", "seasonal_naive", "ses", "croston_sba", "nbeats", "gbm"]
     tab = {}
     for lv in hier.LEVELS:
         row = {}
@@ -128,11 +132,65 @@ def main():
     emit("MAPE is not in this repo. On these buckets %.0f%% of observation-days are"
          % (100 * bb.zero_share.mean()))
     emit("zero, so a per-observation percentage error divides by zero on most of the")
-    emit("evaluation set. MASE reads directly: 0.85 = 15%% less average absolute error")
+    emit("evaluation set. MASE reads directly: 0.85 = 15% less average absolute error")
     emit("than 'same day last week'. Above 1.00 = the naive rule was better.")
     summary["mase_by_class"] = MA.round(3).to_dict("index")
 
     # ------------------------------------------------------------------
+    emit("")
+    emit("=" * 78)
+    emit("4b. THE DEEP ARM (N-BEATS) -- THE OPTIONAL MODEL, SCORED")
+    emit("=" * 78)
+    b = ev[ev.level == "store_item"]
+    deep = {}
+    for m in ("seasonal_naive", "croston_sba", "nbeats", "gbm"):
+        sub = b[b.method == m]
+        deep[m] = dict(wmape=w(sub), bias=float(sub.signed_err.sum()
+                                                / max(sub.actual.sum(), 1e-9)),
+                       n=len(sub))
+    D = pd.DataFrame(deep).T
+    emit(D.to_string(float_format=lambda x: "%9.4f" % x))
+    emit("")
+    gap = D.loc["nbeats", "wmape"] - D.loc["gbm", "wmape"]
+    emit("N-BEATS vs the GBM: %+.4f WMAPE." % gap)
+    emit("")
+    if gap > 0:
+        emit("The deep arm LOSES, and that is the expected and useful answer rather")
+        emit("than a disappointing one. Global deep forecasters earn their keep on")
+        emit("tens of thousands of related series; there are 300 here. A neural net")
+        emit("losing to a GBM on 300 series is not evidence that neural nets lose --")
+        emit("it is evidence that this dataset is below the size where they start")
+        emit("paying, which is exactly the finding somebody deciding whether to")
+        emit("staff the work needs.")
+    else:
+        emit("The deep arm WINS at the bottom level, which is worth stating because")
+        emit("it was expected to lose at this panel width.")
+    emit("")
+    emit("THE BIAS COLUMN MATTERS MORE THAN THE WMAPE COLUMN HERE. N-BEATS runs")
+    emit("%+.1f%% bias against the GBM's %+.1f%%. A model that is a fifth low on"
+         % (100 * D.loc["nbeats", "bias"], 100 * D.loc["gbm", "bias"]))
+    emit("every order is not slightly worse than one that is unbiased, it is a")
+    emit("different and worse decision -- and it fails for the SAME reason `naive`")
+    emit("does. Mean-scaled MAE on zero-heavy series rewards forecasting low,")
+    emit("because a low forecast is exactly right on the many zero days and only")
+    emit("wrong on the few that sell.")
+    emit("")
+    emit("That is also why the per-series gate in section 6 hands N-BEATS 116")
+    emit("series on the plain WMAPE gate and only 69 once the bias guard is on.")
+    emit("The gate was not finding a better model for those series; it was finding")
+    emit("the model that games the metric hardest, and it took two different")
+    emit("architectures to make that visible.")
+    emit("")
+    emit("It is compared on identical folds, identical origins and the same 56-day")
+    emit("window / 28-day horizon as the GBM's direct multi-horizon setup, so the")
+    emit("gap is attributable to the model rather than to the protocol. And it is a")
+    emit("PURE POINT forecaster on purpose: DeepAR would have produced a")
+    emit("distribution and looked better on interval metrics for reasons having")
+    emit("nothing to do with whether its point forecast is any good.")
+    emit("")
+    summary["deep_arm"] = {k: {kk: round(float(vv), 4) for kk, vv in v.items()}
+                           for k, v in deep.items()}
+
     emit("")
     emit("=" * 78)
     emit("5. WHERE THE GBM LOSES  (the table a global-winner deployment hides)")
@@ -254,7 +312,7 @@ def main():
     RT = (body.groupby(["level", "recon"])
               .apply(lambda g: w(g), include_groups=False).unstack("recon"))
     RT = RT.reindex(hier.LEVELS)
-    order = [c for c in ("base_incoherent", "bottom_up", "mint_ols",
+    order = [c for c in ("base_incoherent", "bottom_up", "middle_out", "mint_ols",
                          "mint_wls", "mint_shrink") if c in RT.columns]
     RT = RT[order]
     emit(RT.to_string(float_format=lambda x: "%7.4f" % x))
@@ -278,6 +336,24 @@ def main():
     emit("               scaling in principle, and the thing that is hardest to")
     emit("               estimate from 353 series and 180 residual days.")
     emit("")
+    if "middle_out" in RT.columns:
+        emit("  middle_out   forecast at store x department (30 series), disaggregate")
+        emit("               to items by each item's historical share, aggregate back")
+        emit("               up. Not a weighting scheme at all -- a different place to")
+        emit("               put the model.")
+        emit("")
+        emit("MIDDLE-OUT WINS AT EXACTLY ONE LEVEL: store_dept, the level it forecasts")
+        emit("directly (%.4f vs bottom-up's %.4f). Everywhere else it loses, and the"
+             % (RT.loc["store_dept", "middle_out"], RT.loc["store_dept", "bottom_up"]))
+        emit("bottom level is where it loses worst (%.4f vs %.4f), because the item"
+             % (RT.loc["store_item", "middle_out"], RT.loc["store_item", "bottom_up"]))
+        emit("shares are held FIXED across the horizon. That assumption is the whole")
+        emit("method and it is also its failure mode: a promotion changes precisely")
+        emit("those shares, so middle-out is at its worst exactly when the forecast")
+        emit("matters most. Large retailers run it anyway because the middle level is")
+        emit("where series are smooth enough to model well -- this table is the price")
+        emit("of that convenience, measured.")
+        emit("")
     best_by_level = RT.drop(columns=["base_incoherent"]).idxmin(axis=1)
     emit("Best reconciliation per level:")
     for lv in hier.LEVELS:
@@ -390,8 +466,12 @@ def main():
     emit("quantiles -- summing quantiles overstates, because the days do not all")
     emit("go wrong together. Converting one to the other needs the dependence")
     emit("structure across days, which is exactly what data2's negative-binomial")
-    emit("experiment found it was missing. Neither project has it, and they")
-    emit("independently arrived at the same gap, which is at least consistent.")
+    emit("experiment found it was missing. BOTH PROJECTS ARRIVED AT THE SAME GAP")
+    emit("FROM OPPOSITE DIRECTIONS, and it is now closed: run_advanced.py section B")
+    emit("builds the lead-time distribution by block-bootstrapping forecast error")
+    emit("PATHS, so the dependence comes from the data rather than from an")
+    emit("assumption. On this panel summing daily quantiles overstates the 28-day")
+    emit("P95 by 1.75x. That distribution is what data2 now consumes.")
     summary["quantiles"] = dict(
         table=QT[show_cols].round(4).to_dict("index"),
         diagonal_wins=diag_ok, n_taus=len(Q.SERVICE_LEVELS),

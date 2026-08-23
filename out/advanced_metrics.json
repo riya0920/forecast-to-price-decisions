@@ -1,0 +1,190 @@
+{
+  "gate": [
+    {
+      "gate": "global",
+      "n_decisions": 1,
+      "wmape": 0.1598,
+      "bias": 0.0025,
+      "n_rows": 900,
+      "distinct_methods": 1
+    },
+    {
+      "gate": "per_class",
+      "n_decisions": 4,
+      "wmape": 0.1603,
+      "bias": -0.0233,
+      "n_rows": 900,
+      "distinct_methods": 3
+    },
+    {
+      "gate": "per_series",
+      "n_decisions": 300,
+      "wmape": 0.204,
+      "bias": -0.0353,
+      "n_rows": 900,
+      "distinct_methods": 6
+    }
+  ],
+  "crossing": {
+    "before": 0.009573412698412697,
+    "after": 0.0,
+    "pinball": [
+      {
+        "tau": 0.5,
+        "pinball_raw": 1.193133,
+        "pinball_rearranged": 1.193087,
+        "coverage_raw": 0.572163,
+        "coverage_rearranged": 0.572143
+      },
+      {
+        "tau": 0.75,
+        "pinball_raw": 1.095016,
+        "pinball_rearranged": 1.094956,
+        "coverage_raw": 0.761508,
+        "coverage_rearranged": 0.761488
+      },
+      {
+        "tau": 0.9,
+        "pinball_raw": 0.679607,
+        "pinball_rearranged": 0.680047,
+        "coverage_raw": 0.904187,
+        "coverage_rearranged": 0.902302
+      },
+      {
+        "tau": 0.95,
+        "pinball_raw": 0.43264,
+        "pinball_rearranged": 0.431833,
+        "coverage_raw": 0.947897,
+        "coverage_rearranged": 0.949524
+      },
+      {
+        "tau": 0.98,
+        "pinball_raw": 0.223382,
+        "pinball_rearranged": 0.223073,
+        "coverage_raw": 0.977222,
+        "coverage_rearranged": 0.97752
+      }
+    ]
+  },
+  "leadtime": [
+    {
+      "lead_time": 7,
+      "tau": 0.9,
+      "mean_demand": 31.0041,
+      "block_bootstrap": 42.8065,
+      "sum_of_daily_q": 58.5328,
+      "iid_normal": 41.8484,
+      "sum_vs_boot": 1.3674,
+      "iid_vs_boot": 0.9776,
+      "actual_scale": 1.003
+    },
+    {
+      "lead_time": 7,
+      "tau": 0.95,
+      "mean_demand": 31.0041,
+      "block_bootstrap": 47.1845,
+      "sum_of_daily_q": 69.5292,
+      "iid_normal": 44.9226,
+      "sum_vs_boot": 1.4736,
+      "iid_vs_boot": 0.9521,
+      "actual_scale": 1.003
+    },
+    {
+      "lead_time": 7,
+      "tau": 0.98,
+      "mean_demand": 31.0041,
+      "block_bootstrap": 53.9874,
+      "sum_of_daily_q": 83.8835,
+      "iid_normal": 48.3827,
+      "sum_vs_boot": 1.5538,
+      "iid_vs_boot": 0.8962,
+      "actual_scale": 1.003
+    },
+    {
+      "lead_time": 14,
+      "tau": 0.9,
+      "mean_demand": 60.7004,
+      "block_bootstrap": 77.1634,
+      "sum_of_daily_q": 115.0999,
+      "iid_normal": 75.874,
+      "sum_vs_boot": 1.4916,
+      "iid_vs_boot": 0.9833,
+      "actual_scale": 0.9923
+    },
+    {
+      "lead_time": 14,
+      "tau": 0.95,
+      "mean_demand": 60.7004,
+      "block_bootstrap": 83.442,
+      "sum_of_daily_q": 136.9469,
+      "iid_normal": 80.1756,
+      "sum_vs_boot": 1.6412,
+      "iid_vs_boot": 0.9609,
+      "actual_scale": 0.9923
+    },
+    {
+      "lead_time": 14,
+      "tau": 0.98,
+      "mean_demand": 60.7004,
+      "block_bootstrap": 92.8419,
+      "sum_of_daily_q": 165.5264,
+      "iid_normal": 85.0169,
+      "sum_vs_boot": 1.7829,
+      "iid_vs_boot": 0.9157,
+      "actual_scale": 0.9923
+    },
+    {
+      "lead_time": 28,
+      "tau": 0.9,
+      "mean_demand": 129.9331,
+      "block_bootstrap": 155.7678,
+      "sum_of_daily_q": 243.8349,
+      "iid_normal": 152.1332,
+      "sum_vs_boot": 1.5654,
+      "iid_vs_boot": 0.9767,
+      "actual_scale": 0.9947
+    },
+    {
+      "lead_time": 28,
+      "tau": 0.95,
+      "mean_demand": 129.9331,
+      "block_bootstrap": 165.7955,
+      "sum_of_daily_q": 289.7909,
+      "iid_normal": 158.4266,
+      "sum_vs_boot": 1.7479,
+      "iid_vs_boot": 0.9556,
+      "actual_scale": 0.9947
+    },
+    {
+      "lead_time": 28,
+      "tau": 0.98,
+      "mean_demand": 129.9331,
+      "block_bootstrap": 174.5262,
+      "sum_of_daily_q": 348.0195,
+      "iid_normal": 165.5098,
+      "sum_vs_boot": 1.9941,
+      "iid_vs_boot": 0.9483,
+      "actual_scale": 0.9947
+    }
+  ],
+  "prob_reconciliation": [
+    {
+      "tau": 0.5,
+      "max_abs_gap": 320.8288,
+      "mean_sum_minus_direct": -0.7613,
+      "share_where_sum_exceeds": 0.0093
+    },
+    {
+      "tau": 0.9,
+      "max_abs_gap": 1104.2021,
+      "mean_sum_minus_direct": 12.3719,
+      "share_where_sum_exceeds": 0.1501
+    },
+    {
+      "tau": 0.95,
+      "max_abs_gap": 1405.9833,
+      "mean_sum_minus_direct": 16.0718,
+      "share_where_sum_exceeds": 0.1501
+    }
+  ]
+}

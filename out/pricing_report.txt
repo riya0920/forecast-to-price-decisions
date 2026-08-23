@@ -4,12 +4,12 @@
 Estimated elasticity by specification:
 category                  FOODS  HOBBIES  HOUSEHOLD
 spec                                               
-A_naive                   0.241   -0.319      0.884
-B_promo_control           0.288   -0.307      0.942
-C_promo_fe_calendar      -1.108   -0.370     -0.666
-D_exclude_promo_weeks    -1.016   -0.364     -0.635
-E_poisson_no_promo_ctrl  -3.631   -1.835     -2.808
-F_poisson_full           -2.154   -0.596     -1.409
+A_naive                   0.211    0.055     -0.398
+B_promo_control           0.281    0.088     -0.361
+C_promo_fe_calendar      -1.209   -0.323     -0.721
+D_exclude_promo_weeks    -1.065   -0.301     -0.633
+E_poisson_no_promo_ctrl  -3.763   -1.719     -2.209
+F_poisson_full           -2.205   -0.595     -1.027
 
 TRUE elasticity (planted by the generator):
 category
@@ -20,21 +20,21 @@ HOUSEHOLD    -1.200
 Bias (estimate - truth); negative = estimated MORE elastic than reality:
 category                  FOODS  HOBBIES  HOUSEHOLD
 spec                                               
-A_naive                  +2.341   +0.281     +2.084
-B_promo_control          +2.388   +0.293     +2.142
-C_promo_fe_calendar      +0.992   +0.230     +0.534
-D_exclude_promo_weeks    +1.084   +0.236     +0.565
-E_poisson_no_promo_ctrl  -1.531   -1.235     -1.608
-F_poisson_full           -0.054   +0.004     -0.209
+A_naive                  +2.311   +0.655     +0.802
+B_promo_control          +2.381   +0.688     +0.839
+C_promo_fe_calendar      +0.891   +0.277     +0.479
+D_exclude_promo_weeks    +1.035   +0.299     +0.567
+E_poisson_no_promo_ctrl  -1.663   -1.119     -1.009
+F_poisson_full           -0.105   +0.005     +0.173
 
 Mean |bias| per specification:
 spec
-A_naive                     1.569
-B_promo_control             1.608
-C_promo_fe_calendar         0.585
-D_exclude_promo_weeks       0.628
-E_poisson_no_promo_ctrl     1.458
-F_poisson_full              0.089
+A_naive                     1.256
+B_promo_control             1.302
+C_promo_fe_calendar         0.549
+D_exclude_promo_weeks       0.634
+E_poisson_no_promo_ctrl     1.264
+F_poisson_full              0.094
 
 TWO DIFFERENT BIASES, PULLING IN OPPOSITE DIRECTIONS. Reading the bias
 table by row rather than by column is the whole point:
@@ -88,22 +88,22 @@ All three are SCORED in the same world, at its true elasticity.
 
                      world_e  rev_none   rev_bad  rev_good  rev_oracle  good_vs_none_pct  good_vs_flat_pct  bad_spec_cost_pct  good_spec_cost_pct  sellthru_good  sellthru_none sched_good sched_oracle
 category  scenario                                                                                                                                                                                     
-FOODS     -30%         -1.47  52645.23  52645.23  60008.50    63360.93             13.99              0.02              16.91                5.29          76.72          45.37   30/30/30     40/40/40
-          true         -2.10  52645.23  52645.23  73767.75    74089.27             40.12              0.04              28.94                0.43          96.08          45.37   30/30/30     30/30/40
-          +30%         -2.73  52645.23  52645.23  76576.81    81083.39             45.46             -0.02              35.07                5.56         100.00          45.37   30/30/30     20/30/30
-HOUSEHOLD -30%         -0.84 199443.47 199443.47 178193.34   199443.47            -10.65             -0.80               0.00               10.65          71.98          45.39   40/40/50        0/0/0
-          true         -1.20 199443.47 199443.47 212406.59   213493.80              6.50              0.32               6.58                0.51          87.81          45.39   40/40/50     40/50/50
-          +30%         -1.56 199443.47 199443.47 240755.95   248592.58             20.71             -3.15              19.77                3.15         100.00          45.39   40/40/50     40/40/40
-HOBBIES   -30%         -0.42 300165.29 300165.29 300165.29   300165.29              0.00              0.00               0.00                0.00          45.39          45.39      0/0/0        0/0/0
-          true         -0.60 300165.29 300165.29 300165.29   300165.29              0.00              0.00               0.00                0.00          45.39          45.39      0/0/0        0/0/0
-          +30%         -0.78 300165.29 300165.29 300165.29   300165.29              0.00              0.00               0.00                0.00          45.39          45.39      0/0/0        0/0/0
+FOODS     -30%         -1.47  43750.51  43750.51  49860.83    52648.67             13.97              0.00              16.90                5.30          76.63          45.35   30/30/30     40/40/40
+          true         -2.10  43750.51  43750.51  61280.32    61600.04             40.07              0.01              28.98                0.52          95.94          45.35   30/30/30     30/30/40
+          +30%         -2.73  43750.51  43750.51  63679.61    67420.23             45.55             -0.00              35.11                5.55         100.00          45.35   30/30/30     20/30/30
+HOUSEHOLD -30%         -0.84 168384.50 168384.50 168384.50   168384.50              0.00              0.00               0.00                0.00          45.39          45.39      0/0/0        0/0/0
+          true         -1.20 168384.50 168384.50 168384.50   180245.68              0.00              0.00               6.58                6.58          45.39          45.39      0/0/0     40/50/50
+          +30%         -1.56 168384.50 168384.50 168384.50   209944.18              0.00              0.00              19.80               19.80          45.39          45.39      0/0/0     40/40/40
+HOBBIES   -30%         -0.42 193780.57 193780.57 193780.57   193780.57              0.00              0.00               0.00                0.00          45.35          45.35      0/0/0        0/0/0
+          true         -0.60 193780.57 193780.57 193780.57   193780.57              0.00              0.00               0.00                0.00          45.35          45.35      0/0/0        0/0/0
+          +30%         -0.78 193780.57 193780.57 193780.57   193780.57              0.00              0.00               0.00                0.00          45.35          45.35      0/0/0        0/0/0
 
 WHAT THIS TABLE SAYS, in the order a merchant would ask:
 
 1. Markdown depth is a function of elasticity, and the optimiser works
    that out without being told. Read sched_oracle down the categories:
      FOODS      true e=-2.10  ->  30/30/40   (sell-through 96% vs 45% at full price)
-     HOUSEHOLD  true e=-1.20  ->  40/50/50   (sell-through 88% vs 45% at full price)
+     HOUSEHOLD  true e=-1.20  ->  40/50/50   (sell-through 45% vs 45% at full price)
      HOBBIES    true e=-0.60  ->  0/0/0   (sell-through 45% vs 45% at full price)
    An inelastic category should not be marked down at all -- cutting price
    there gives away margin on units that were going to sell anyway. A
@@ -113,16 +113,16 @@ WHAT THIS TABLE SAYS, in the order a merchant would ask:
 2. THE COST OF THE ELASTICITY ESTIMATE, IN DOLLARS. bad_spec_cost_pct is
    the revenue given up by a team that estimated elasticity the way most
    portfolio projects do -- log-log OLS on a zero-heavy count series:
-     FOODS      bad spec  28.94% of clearance revenue   |  good spec  0.43%
-     HOUSEHOLD  bad spec   6.58% of clearance revenue   |  good spec  0.51%
+     FOODS      bad spec  28.98% of clearance revenue   |  good spec  0.52%
+     HOUSEHOLD  bad spec   6.58% of clearance revenue   |  good spec  6.58%
      HOBBIES    bad spec   0.00% of clearance revenue   |  good spec  0.00%
    The attenuated estimate makes demand look inelastic, so the BAD team
    marks down too little or not at all and eats the salvage. That number
    is the business case for the price experiment, priced.
 
 3. SENSITIVITY (elasticity +/-30% around truth):
-     FOODS      good-vs-no-markdown across worlds: +13.99%, +40.12%, +45.46% -> DECISION HOLDS
-     HOUSEHOLD  good-vs-no-markdown across worlds: -10.65%, +6.50%, +20.71% -> DECISION FLIPS
+     FOODS      good-vs-no-markdown across worlds: +13.97%, +40.07%, +45.55% -> DECISION HOLDS
+     HOUSEHOLD  good-vs-no-markdown across worlds: +0.00%, +0.00%, +0.00% -> DECISION HOLDS
      HOBBIES    good-vs-no-markdown across worlds: +0.00%, +0.00%, +0.00% -> DECISION HOLDS
    Where it holds, the recommendation survives a 30% elasticity error even
    though the revenue forecast does not -- the level moves, the decision
@@ -134,3 +134,142 @@ WHAT THIS TABLE SAYS, in the order a merchant would ask:
    marking down AT ALL, not in the shape of the path. A markdown-
    optimisation project that headlines the phasing gain and hides the
    mark-down-or-not gain has its emphasis backwards.
+==============================================================================
+10. ELASTICITY BELOW THE CATEGORY -- IS PER-ITEM PRICING ESTIMABLE?
+==============================================================================
+60 items, one Poisson GLM each (store FE + week-of-year FE + promo).
+
+         estimator      mae     rmse  corr_with_truth  sd_of_estimates  within_cat_mae  within_cat_corr
+      raw_per_item   0.2356   0.3450           0.9152           0.8339          0.2388           0.6408
+shrunk_to_category   0.1558   0.2056           0.9617           0.7317          0.1484           0.7385
+category_mean_only   0.2182   0.2951           0.9164           0.7110          0.1957           0.0000
+
+True sd of per-item elasticity: 0.7072
+
+BEST BY MAE: shrunk_to_category
+
+  Per-item estimation beats the category mean, so the heterogeneity
+  is not merely real but recoverable at this panel width.
+
+  The raw per-item estimates have sd 0.8339 against a true sd of 0.7072.
+  That is 1.18x the real dispersion: most of what a per-item table
+  displays as 'this SKU is more elastic' is sampling noise, and a
+  merchant reading it would price on it anyway.
+
+  Shrinkage is the middle answer and it is not a compromise -- it is the
+  estimator that knows how much of its own dispersion to believe. Its
+  weight per item is tau^2/(tau^2+se^2) with tau^2 estimated from the
+  data, so if the panel had more signal it would shrink less.
+
+------------------------------------------------------------------------------
+Elasticity by SEGMENT (one number per item is itself an aggregation):
+    dimension  category     segment  estimate       se  truth_mean     bias     n
+segment_promo     FOODS promo_weeks    -2.196    0.118      -2.167   -0.029  1664
+segment_promo     FOODS shelf_weeks    -2.274    0.075      -2.167   -0.107 19336
+segment_promo   HOBBIES promo_weeks    -0.764    0.126      -0.604   -0.160  1743
+segment_promo   HOBBIES shelf_weeks    -0.574    0.090      -0.604    0.030 19257
+segment_promo HOUSEHOLD promo_weeks    -1.174    0.117      -1.145   -0.029  1681
+segment_promo HOUSEHOLD shelf_weeks    -1.008    0.068      -1.145    0.137 19319
+ segment_tier     FOODS high_volume    -2.190    0.071      -2.101   -0.088 12600
+ segment_tier     FOODS  low_volume    -2.456    0.125      -2.266   -0.190  8400
+ segment_tier   HOBBIES high_volume    -0.570    0.085      -0.640    0.071  7350
+ segment_tier   HOBBIES  low_volume    -0.673    0.087      -0.585   -0.089 13650
+ segment_tier HOUSEHOLD high_volume    -1.018    0.064      -1.170    0.152 11550
+ segment_tier HOUSEHOLD  low_volume    -1.208    0.113      -1.114   -0.094  9450
+
+  Promo-week and shelf-week elasticities are not the same object. A
+  promo week bundles the display lift with the price cut, so its
+  'elasticity' answers 'what happens when I run a promotion', while the
+  shelf-week number answers 'what happens when I change the price'.
+  Those are different decisions and merchants routinely quote one for
+  the other.
+
+==============================================================================
+11. CROSS-PRICE ELASTICITY -- WHAT A MARKDOWN TAKES FROM THE SHELF
+==============================================================================
+ category                 spec      own   own_se    cross  cross_se  true_own  true_cross
+    FOODS G_daily_event_dow_FE   -2.237    0.053    0.423     0.077    -2.167       0.350
+HOUSEHOLD G_daily_event_dow_FE   -1.130    0.050    0.299     0.093    -1.145       0.350
+  HOBBIES G_daily_event_dow_FE   -0.704    0.067    0.493     0.100    -0.604       0.350
+    FOODS     H_no_calendar_FE   -2.190    0.057    0.117     0.082    -2.167       0.350
+    FOODS I_rival_term_omitted   -2.181    0.052      NaN       NaN    -2.167       0.350
+
+SPEC G recovers cross-price within 1.4 se of truth on all three
+categories (planted 0.350).
+
+SPEC H IS THE FINDING. Drop the event and day-of-week fixed effects and
+cross-price collapses from 0.423 to 0.117 -- attenuated by 72%.
+
+  It is the same confound this project already documents for own-price,
+  arriving somewhere new. Promotions are scheduled into strong periods,
+  and what makes a period strong here is EVENTS and WEEKDAY -- both
+  shared across the whole department. So a rival's promotion lands
+  disproportionately on days my demand is high for reasons that have
+  nothing to do with the rival, my sales are up while the rival price is
+  down, and the regression charges that co-movement to the cross term
+  with a NEGATIVE sign.
+
+  Week-of-year fixed effects do NOT fix it, which is the trap: they are
+  in both specifications. Thanksgiving moves within the ISO week from
+  year to year and weekday variation is inside the week by definition,
+  so a weekly panel has already destroyed the variation the control
+  needs. That is why this specification is daily while every other
+  elasticity in this project is weekly -- aggregation is not a neutral
+  performance choice when the confound lives inside the bucket.
+
+SPEC I omits the rival term entirely -- what almost every demand model
+in production does. Own-price moves +0.056 (-2.237 -> -2.181) against a true
+-2.167. The own-price coefficient absorbs part of the substitution.
+
+  Commercially the difference is between 'this markdown will sell X more
+  units' and 'this markdown will sell X more units, Y of which it took
+  from the item next to it'. A single-item optimiser books Y as a gain,
+  and the more items in the department the more it over-discounts.
+
+==============================================================================
+12. MULTI-ITEM MARKDOWN -- SHARED INVENTORY, A BUDGET, CANNIBALISATION
+==============================================================================
+Department FOODS_1, 10 items, 42-day clearance in 3 phases.
+Two items share one inventory pool. Budget = 12% of ticket value ($3598).
+Estimated cross-price 0.423, true 0.350.
+
+                 policy  status  converged  iters  mean_depth    revenue  markdown_spend   leftover
+ignores cannibalisation Optimal       True      2        0.20   21313.49         4794.09     888.08
+   uses ESTIMATED cross Optimal       True     10        0.24   21618.93         6217.30     500.74
+        uses TRUE cross Optimal       True      6        0.22   21522.67         5616.37     659.63
+TRUE cross + 12% budget Optimal       True     11        0.13   21499.60         3597.81    1273.32
+
+EVERY ROW IS SCORED IN THE SAME TRUE WORLD. The only thing that differs
+is what the optimiser BELIEVED when it decided.
+
+  ignores cannibalisation : depth 0.197, revenue $21313
+  uses TRUE cross         : depth 0.220, revenue $21523  (+0.98%)
+
+  Knowing about cannibalisation makes the optimiser discount MORE,
+  not less. That is the opposite of the textbook direction and it is
+  worth stating rather than smoothing over: with substitutes, a
+  department-wide markdown partly cancels itself -- every item's
+  rivals get cheaper at the same time -- so hitting the same
+  clearance volume requires going DEEPER than a single-item view
+  suggests. The single-item optimiser is wrong in both directions
+  depending on whether it is pricing one item or a shelf.
+
+  uses ESTIMATED cross    : depth 0.240, revenue $21619
+  The estimation error costs $-96 (-0.45% of clearance revenue).
+  That is the dollar value of getting the cross-price specification
+  right, and it is the same argument as section 11 in a currency a
+  merchant can act on.
+
+  TRUE cross + 12% budget : depth 0.133, revenue $21500, spend $3598
+  The budget costs $23 (0.11%) and is the row a merchant can actually
+  approve. A schedule that ignores the season's markdown budget is not a
+  recommendation, it is a wish.
+
+  `converged` is printed because it has to be: this is a SEQUENCE of
+  exact MILPs with the rival index held fixed and updated between
+  solves. Convergence is tested on the schedule rather than on the
+  index -- the index is damped and approaches its fixed point
+  asymptotically, so testing it would raise a false alarm about a solver
+  that had settled. A stable schedule on a discrete grid IS the fixed
+  point, and it is the only thing a merchant ever sees.
+

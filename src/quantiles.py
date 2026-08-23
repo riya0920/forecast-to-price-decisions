@@ -103,3 +103,48 @@ def evaluate_quantiles(y_true, preds_by_tau: dict) -> list[dict]:
             row["pinball@%.2f" % other] = pinball_loss(y_true, pred, other)
         rows.append(row)
     return rows
+
+
+# --------------------------------------------------------------------------
+# quantile crossing
+# --------------------------------------------------------------------------
+def crossing_rate(preds_by_tau: dict) -> float:
+    """Share of points where a higher tau predicts a LOWER value than a lower tau.
+
+    Fitting one model per tau means nothing in the estimation couples them, so
+    nothing prevents the fitted P90 from landing above the fitted P95 on some
+    input. It is not a rare pathology -- it happens wherever the trees split
+    differently, which is most often in the sparse regions of feature space where
+    the quantiles matter most.
+
+    An order system reading a crossed fan orders MORE stock for a LOWER service
+    level, which is not a small numerical wart: it inverts the meaning of the
+    parameter a planner is turning.
+    """
+    taus = sorted(preds_by_tau)
+    if len(taus) < 2:
+        return 0.0
+    fan = np.vstack([np.asarray(preds_by_tau[t], float).ravel() for t in taus])
+    return float((np.diff(fan, axis=0) < -1e-9).mean())
+
+
+def rearrange(preds_by_tau: dict) -> dict:
+    """Monotone rearrangement: sort the fan at each point.
+
+    This is the Chernozhukov-Fernandez-Val-Galichon rearrangement, and the reason
+    to prefer it to "fit a fancier joint model" is that it is FREE and provably
+    safe: sorting an estimated quantile curve can only reduce (never increase)
+    the estimation error against the true, necessarily monotone, quantile
+    function. So it cannot make the pinball loss worse, and the report checks
+    that rather than taking it on faith.
+
+    It is a post-processing step, not a fix to the cause. The cause is that five
+    independent fits have no idea the others exist.
+    """
+    taus = sorted(preds_by_tau)
+    fan = np.vstack([np.asarray(preds_by_tau[t], float).ravel() for t in taus])
+    fan = np.sort(fan, axis=0)
+    out = {}
+    for i, t in enumerate(taus):
+        out[t] = fan[i].reshape(np.asarray(preds_by_tau[t], float).shape)
+    return out

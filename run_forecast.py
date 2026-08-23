@@ -27,10 +27,10 @@ import time
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import HistGradientBoostingRegressor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from src import core, feats, hier, quantiles as Q  # noqa: E402
+from src import core, deep, feats, gbm, hier, probrec  # noqa: E402
+from src import quantiles as Q  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data")
@@ -42,32 +42,33 @@ RESID_TAIL = 180  # days of in-sample residual used to estimate MinT's W
 
 
 def fit_predict_quantile(train, test, tau: float):
-    """A separate model per quantile. sklearn's quantile loss does not share a
-    fit across taus, so this is one model per tau -- which is why it is run only
-    at the bottom level, where replenishment actually places orders."""
-    X = train[feats.FEATURE_COLS].to_numpy(dtype=np.float32)
-    y = train.y.to_numpy(dtype=np.float64)
-    m = HistGradientBoostingRegressor(
-        loss="quantile", quantile=tau, max_iter=120, learning_rate=0.08,
-        max_leaf_nodes=31, min_samples_leaf=40, l2_regularization=1.0,
-        random_state=7, early_stopping=False)
-    m.fit(X, y)
-    return np.clip(m.predict(test[feats.FEATURE_COLS].to_numpy(dtype=np.float32)),
-                   0, None)
+    """A separate model per quantile. The pinball loss does not decompose across
+    taus, so there is no shared fit to be had -- which is why this runs only at
+    the bottom level, where replenishment actually places orders."""
+    m = gbm.fit_quantile(train[feats.FEATURE_COLS], train.y, tau)
+    return gbm.predict(m, test[feats.FEATURE_COLS])
 
 
 def fit_predict_gbm(train, test):
     """One global model per level. Poisson loss: the target is a unit count."""
-    X = train[feats.FEATURE_COLS].to_numpy(dtype=np.float32)
-    y = train.y.to_numpy(dtype=np.float64)
-    m = HistGradientBoostingRegressor(
-        loss="poisson", max_iter=220, learning_rate=0.07, max_leaf_nodes=48,
-        min_samples_leaf=40, l2_regularization=1.0, random_state=7,
-        early_stopping=False)
-    m.fit(X, y)
-    pred = np.clip(m.predict(test[feats.FEATURE_COLS].to_numpy(dtype=np.float32)), 0, None)
-    fitted = np.clip(m.predict(X), 0, None)
-    return pred, m, fitted
+    m = gbm.fit_point(train[feats.FEATURE_COLS], train.y)
+    return (gbm.predict(m, test[feats.FEATURE_COLS]), m,
+            gbm.predict(m, train[feats.FEATURE_COLS]))
+
+
+def fit_predict_nbeats(bottom_panel, origin, h_dates):
+    """The global deep arm, trained per fold on everything before the origin.
+
+    Trained on the BOTTOM level only. N-BEATS is a global model over series that
+    share a shape; aggregate levels have a different shape and only 30 of them,
+    so pooling them in would be adding noise to buy nothing.
+    """
+    hist = bottom_panel[bottom_panel.index < origin]
+    arr = hist.to_numpy(float).T                      # (n_series x T)
+    X, Y, _ = deep.make_windows(arr)
+    model = deep.train(X, Y, epochs=8)
+    fc = deep.forecast(model, arr)[:, :len(h_dates)]
+    return {c: fc[i] for i, c in enumerate(bottom_panel.columns)}
 
 
 def main():
@@ -109,6 +110,7 @@ def main():
         h_dates = dates[dates >= origin][:H]
         base_fc = np.zeros((len(names), H))
         resid = np.zeros((len(names), RESID_TAIL))
+        nbeats_fc = fit_predict_nbeats(panels["store_item"], origin, h_dates)
 
         for lv in hier.LEVELS:
             L = long[lv]
@@ -138,10 +140,14 @@ def main():
                 fc = {"gbm": grp.gbm.to_numpy(float)}
                 for bname, fn in core.BASELINES.items():
                     fc[bname] = fn(y_train, len(y_true))
+                if lv == "store_item" and key in nbeats_fc:
+                    fc["nbeats"] = np.asarray(nbeats_fc[key], float)[:len(y_true)]
 
                 for meth, yhat in fc.items():
                     records.append(dict(
                         fold=fi, level=lv, key=key, method=meth,
+                        klass=(cls.cls.get(key, "n/a") if lv == "store_item"
+                               else "n/a"),
                         wmape=core.wmape(y_true, yhat),
                         bias=core.bias_pct(y_true, yhat),
                         mase=core.mase(y_true, yhat, y_train),
@@ -170,6 +176,28 @@ def main():
                 resid[i] = np.pad(r, (max(0, RESID_TAIL - len(r)), 0))[-RESID_TAIL:]
 
         bu = hier.bottom_up(S, base_fc[-S.shape[1]:])
+
+        # MIDDLE-OUT: forecast at store x department (30 series), then push down
+        # by each item's historical share of its department and aggregate back
+        # up. The proportions are held FIXED over the horizon, which is the
+        # method's real weakness and the reason it is scored rather than
+        # asserted -- a promotion changes exactly those shares.
+        mid_lv = "store_dept"
+        mid_names = list(panels[mid_lv].columns)
+        mid_pos = {c: i for i, c in enumerate(mid_names)}
+        bottom_cols = list(panels["store_item"].columns)
+        meta_dept = (df.assign(bkey=df.store_id + "|" + df.item_id,
+                               dkey=df.store_id + "|" + df.dept_id)
+                       [["bkey", "dkey"]].drop_duplicates().set_index("bkey").dkey)
+        group_ids = np.array([meta_dept[c] for c in bottom_cols])
+        hist_bottom = panels["store_item"][panels["store_item"].index < origin]
+        props = probrec.proportions(hist_bottom.to_numpy(float).T, group_ids)
+        mid_fc = np.vstack([base_fc[name_pos[(mid_lv, c)]] for c in mid_names])
+        mo_bottom = probrec.middle_out(
+            mid_fc[[mid_pos[g] for g in np.unique(group_ids)]],
+            group_ids, props)
+        mo = hier.bottom_up(S, mo_bottom)
+
         mt = hier.mint(S, base_fc, resid, method="shrink")
         mt_ols = hier.mint(S, base_fc, resid, method="ols")
         mt_wls = hier.mint(S, base_fc, resid, method="wls")
@@ -177,6 +205,7 @@ def main():
                             for lv, key in names])
 
         for label, fcm in (("base_incoherent", base_fc), ("bottom_up", bu),
+                           ("middle_out", mo),
                            ("mint_ols", mt_ols), ("mint_wls", mt_wls),
                            ("mint_shrink", mt)):
             for i, (lv, key) in enumerate(names):
@@ -198,6 +227,14 @@ def main():
     import pickle
     with open(os.path.join(OUT, "quantile_raw.pkl"), "wb") as f:
         pickle.dump(qrecords, f)
+    # The last fold's bottom-level point forecasts, residual history and summing
+    # matrix -- everything run_advanced.py needs for lead-time quantiles and
+    # probabilistic reconciliation, so that analysis can be re-run without
+    # paying for the backtest again.
+    with open(os.path.join(OUT, "fold_state.pkl"), "wb") as f:
+        pickle.dump(dict(S=S, names=names, base_fc=base_fc, resid=resid,
+                         bottom_cols=list(panels["store_item"].columns),
+                         actual=actual), f)
     print("\nbacktest complete in %.0fs -> out/backtest_raw.csv.gz" % (time.time() - t0))
 
 

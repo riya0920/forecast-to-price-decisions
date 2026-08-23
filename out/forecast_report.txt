@@ -1,13 +1,13 @@
 ==============================================================================
 1. WMAPE BY HIERARCHY LEVEL  (evaluation folds 4-6, 28-day horizon)
 ==============================================================================
-             naive  seasonal_naive     ses  croston_sba     gbm  FVA_gbm
-total       0.3544          0.2794  0.3514       0.2990  0.1087   0.1707
-state       0.3643          0.3017  0.3497       0.3023  0.1419   0.1598
-store       0.4095          0.3358  0.3262       0.3277  0.1427   0.1931
-store_cat   0.4709          0.4180  0.3750       0.3682  0.2111   0.2069
-store_dept  0.5202          0.4786  0.4101       0.4052  0.2562   0.2224
-store_item  0.7351          0.7505  0.6017       0.5921  0.5051   0.2454
+             naive  seasonal_naive     ses  croston_sba  nbeats     gbm  FVA_gbm
+total       0.3449          0.2620  0.3408       0.3025     NaN  0.1034   0.1585
+state       0.3557          0.2724  0.3152       0.3051     NaN  0.1145   0.1579
+store       0.3851          0.3063  0.3138       0.3107     NaN  0.1211   0.1852
+store_cat   0.4267          0.3795  0.3449       0.3426     NaN  0.1859   0.1936
+store_dept  0.4760          0.4434  0.3818       0.3772     NaN  0.2298   0.2136
+store_item  0.7208          0.7729  0.6139       0.6093  0.5656  0.5291   0.2438
 
 FVA_gbm > 0 means the GBM beat seasonal naive at that level, in WMAPE points.
 
@@ -16,11 +16,12 @@ FVA_gbm > 0 means the GBM beat seasonal naive at that level, in WMAPE points.
 ==============================================================================
                   h1_7   h8_28   decay
 method                                
-naive           0.7117  0.7420  0.0303
-seasonal_naive  0.7741  0.7436 -0.0305
-ses             0.5661  0.6121  0.0460
-croston_sba     0.5539  0.6033  0.0494
-gbm             0.5140  0.5025 -0.0116
+naive           0.6924  0.7293  0.0368
+seasonal_naive  0.7655  0.7752  0.0097
+ses             0.5905  0.6209  0.0304
+croston_sba     0.5848  0.6166  0.0318
+nbeats          0.5349  0.5749  0.0400
+gbm             0.5437  0.5248 -0.0190
 
 Seasonal naive barely decays -- it has no recent information to lose. The GBM's decay is
 the honest cost of a 4-week horizon: recent-lag information stops helping.
@@ -30,11 +31,12 @@ the honest cost of a 4-week horizon: recent-lag information stops helping.
 ==============================================================================
                 bias_pct    wmape
 method                           
-naive            -0.2919  +0.7351
-seasonal_naive   -0.0349  +0.7505
-ses              -0.0391  +0.6017
-croston_sba      -0.0877  +0.5921
-gbm              +0.0057  +0.5051
+naive            -0.3052  +0.7208
+seasonal_naive   -0.0104  +0.7729
+ses              -0.0159  +0.6139
+croston_sba      -0.0576  +0.6093
+nbeats           -0.2057  +0.5656
+gbm              +0.0025  +0.5291
 
 Why this table sits next to accuracy: replenishment is asymmetric. A +5%
 bias is 5% more inventory dollars on every item, every cycle, forever; a
@@ -45,30 +47,71 @@ bias you cannot -- safety stock sized on sigma does not cover a drift.
 ==============================================================================
 4. INTERMITTENT BUCKET: MASE, NOT MAPE
 ==============================================================================
-              n_series  zero_share  MASE_naive  MASE_seasonal_naive  MASE_ses  MASE_croston_sba  MASE_gbm
-cls                                                                                                      
-smooth              20       0.042       0.991                1.023     0.814             0.811     0.733
-erratic            122       0.075       1.091                1.113     0.887             0.876     0.747
-intermittent       147       0.715       1.002                1.116     1.002             0.982     1.021
-lumpy               11       0.320       1.093                1.165     0.922             0.929     0.853
+              n_series  zero_share  MASE_naive  MASE_seasonal_naive  MASE_ses  MASE_croston_sba  MASE_nbeats  MASE_gbm
+cls                                                                                                                   
+smooth              18       0.034       0.955                0.969     0.757             0.755        0.703     0.678
+erratic            145       0.077       0.994                1.065     0.839             0.835        0.787     0.721
+intermittent       126       0.638       0.949                1.044     0.947             0.936        0.757     0.947
+lumpy               11       0.411       1.170                1.334     1.088             1.090        1.041     0.961
 
-MAPE is not in this repo. On these buckets 40% of observation-days are
+MAPE is not in this repo. On these buckets 32% of observation-days are
 zero, so a per-observation percentage error divides by zero on most of the
-evaluation set. MASE reads directly: 0.85 = 15%% less average absolute error
+evaluation set. MASE reads directly: 0.85 = 15% less average absolute error
 than 'same day last week'. Above 1.00 = the naive rule was better.
+
+==============================================================================
+4b. THE DEEP ARM (N-BEATS) -- THE OPTIONAL MODEL, SCORED
+==============================================================================
+                   wmape      bias         n
+seasonal_naive    0.7729   -0.0104  900.0000
+croston_sba       0.6093   -0.0576  900.0000
+nbeats            0.5656   -0.2057  900.0000
+gbm               0.5291    0.0025  900.0000
+
+N-BEATS vs the GBM: +0.0365 WMAPE.
+
+The deep arm LOSES, and that is the expected and useful answer rather
+than a disappointing one. Global deep forecasters earn their keep on
+tens of thousands of related series; there are 300 here. A neural net
+losing to a GBM on 300 series is not evidence that neural nets lose --
+it is evidence that this dataset is below the size where they start
+paying, which is exactly the finding somebody deciding whether to
+staff the work needs.
+
+THE BIAS COLUMN MATTERS MORE THAN THE WMAPE COLUMN HERE. N-BEATS runs
+-20.6% bias against the GBM's +0.3%. A model that is a fifth low on
+every order is not slightly worse than one that is unbiased, it is a
+different and worse decision -- and it fails for the SAME reason `naive`
+does. Mean-scaled MAE on zero-heavy series rewards forecasting low,
+because a low forecast is exactly right on the many zero days and only
+wrong on the few that sell.
+
+That is also why the per-series gate in section 6 hands N-BEATS 116
+series on the plain WMAPE gate and only 69 once the bias guard is on.
+The gate was not finding a better model for those series; it was finding
+the model that games the metric hardest, and it took two different
+architectures to make that visible.
+
+It is compared on identical folds, identical origins and the same 56-day
+window / 28-day horizon as the GBM's direct multi-horizon setup, so the
+gap is attributable to the model rather than to the protocol. And it is a
+PURE POINT forecaster on purpose: DeepAR would have produced a
+distribution and looked better on interval metrics for reasons having
+nothing to do with whether its point forecast is any good.
+
 
 ==============================================================================
 5. WHERE THE GBM LOSES  (the table a global-winner deployment hides)
 ==============================================================================
                 n  gbm_win_rate  mean_units_day
 cls                                            
-erratic       122         1.000           8.107
-intermittent  147         0.639           0.453
-lumpy          11         1.000           1.566
-smooth         20         1.000          19.633
+erratic       145         0.993           6.931
+intermittent  126         0.667           0.571
+lumpy          11         1.000           1.194
+smooth         18         1.000          18.094
 
-GBM beats seasonal naive on 82.3% of item x store series.
-It loses on 17.7%. Deploying the aggregate winner everywhere would
+GBM beats seasonal naive on 85.7% of item x store series.
+It loses on 14.3%. Deploying the aggregate winner everywhere would
 knowingly degrade those series -- which is why section 6 exists.
 
 ==============================================================================
@@ -79,22 +122,24 @@ selection never sees the evaluation window.
 
                                    wmape     bias  FVA_vs_snaive
 policy                                                          
-naive                            +0.7351  -0.2919        +0.0153
-seasonal_naive                   +0.7505  -0.0349        +0.0000
-ses                              +0.6017  -0.0391        +0.1487
-croston_sba                      +0.5921  -0.0877        +0.1584
-gbm                              +0.5051  +0.0057        +0.2454
-PER-SERIES (WMAPE gate)          +0.5284  -0.0353        +0.2220
-PER-SERIES (WMAPE + bias guard)  +0.5612  -0.0311        +0.1893
+naive                            +0.7208  -0.3052        +0.0522
+seasonal_naive                   +0.7729  -0.0104        +0.0000
+ses                              +0.6139  -0.0159        +0.1590
+croston_sba                      +0.6093  -0.0576        +0.1637
+nbeats                           +0.5656  -0.2057        +0.2073
+gbm                              +0.5291  +0.0025        +0.2438
+PER-SERIES (WMAPE gate)          +0.5451  -0.0931        +0.2279
+PER-SERIES (WMAPE + bias guard)  +0.5546  -0.0705        +0.2183
 
 Champion mix -- WMAPE gate vs bias-guarded gate:
                 wmape_gate  bias_guarded
-croston_sba             36            75
-gbm                    139           121
-naive                   96            42
-seasonal_naive          11            23
-ses                     18            39
-(1 series had no sales in the selection window and fall back to seasonal_naive.)
+croston_sba             14            53
+gbm                    111           122
+naive                   51            23
+nbeats                 116            69
+seasonal_naive           2            15
+ses                      6            18
+(0 series had no sales in the selection window and fall back to seasonal_naive.)
 
 THE RESULT THIS SECTION EXISTS FOR, stated against my own expectation:
 per-series selection LOSES to just deploying the GBM everywhere. Both
@@ -114,7 +159,7 @@ Two mechanisms, both visible above:
       series it was meant to rescue were losing.
 
 The bias guard does what it was built to do -- it moves 54 series off naive
-and pulls portfolio bias from -3.53% to -3.11% -- and still costs WMAPE.
+and pulls portfolio bias from -9.31% to -7.05% -- and still costs WMAPE.
 
 So the deployment recommendation from this backtest is the GBM globally,
 with per-series selection revisited only when there is enough evaluation
@@ -125,19 +170,20 @@ each series alone. That pooled variant is not built here; see the README.
 ==============================================================================
 7. HIERARCHICAL RECONCILIATION
 ==============================================================================
-recon       base_incoherent  bottom_up  mint_ols  mint_wls  mint_shrink
-level                                                                  
-total                0.1087     0.0616    0.0971    0.0802       0.0802
-state                0.1419     0.0817    0.1232    0.1048       0.1048
-store                0.1427     0.1226    0.1560    0.1420       0.1420
-store_cat            0.2111     0.2069    0.2236    0.2122       0.2123
-store_dept           0.2562     0.2672    0.2851    0.2700       0.2701
-store_item           0.5051     0.5051    0.5646    0.5068       0.5068
+recon       base_incoherent  bottom_up  middle_out  mint_ols  mint_wls  mint_shrink
+level                                                                              
+total                0.1034     0.0560      0.0593    0.0886    0.0634       0.0634
+state                0.1145     0.0698      0.0723    0.1032    0.0792       0.0792
+store                0.1211     0.1050      0.1088    0.1352    0.1127       0.1127
+store_cat            0.1859     0.1758      0.1758    0.1992    0.1811       0.1811
+store_dept           0.2298     0.2350      0.2298    0.2520    0.2359       0.2359
+store_item           0.5291     0.5291      0.5501    0.5619    0.5290       0.5290
 
 Max coherence violation (units, over the whole horizon):
 recon
-base_incoherent   1519.864304
+base_incoherent   1101.560307
 bottom_up            0.000000
+middle_out           0.000000
 mint_ols             0.000000
 mint_shrink          0.000000
 mint_wls             0.000000
@@ -158,13 +204,28 @@ MinT variants differ ONLY in the weight matrix W they invert:
                scaling in principle, and the thing that is hardest to
                estimate from 353 series and 180 residual days.
 
+  middle_out   forecast at store x department (30 series), disaggregate
+               to items by each item's historical share, aggregate back
+               up. Not a weighting scheme at all -- a different place to
+               put the model.
+
+MIDDLE-OUT WINS AT EXACTLY ONE LEVEL: store_dept, the level it forecasts
+directly (0.2298 vs bottom-up's 0.2350). Everywhere else it loses, and the
+bottom level is where it loses worst (0.5501 vs 0.5291), because the item
+shares are held FIXED across the horizon. That assumption is the whole
+method and it is also its failure mode: a promotion changes precisely
+those shares, so middle-out is at its worst exactly when the forecast
+matters most. Large retailers run it anyway because the middle level is
+where series are smooth enough to model well -- this table is the price
+of that convenience, measured.
+
 Best reconciliation per level:
   total        bottom_up
   state        bottom_up
   store        bottom_up
   store_cat    bottom_up
-  store_dept   bottom_up
-  store_item   bottom_up
+  store_dept   middle_out
+  store_item   mint_shrink
 
 BOTTOM-UP WINS OR TIES ALMOST EVERYWHERE, and that is the honest result.
 MinT should beat it in theory -- it uses information bottom-up throws
@@ -188,21 +249,21 @@ level, scored on the evaluation folds.
 
       coverage  mean_forecast  implied_cost_ratio  pinball@0.50  pinball@0.75  pinball@0.90  pinball@0.95  pinball@0.98
 tau                                                                                                                    
-0.50    0.6130         4.4382              1.0000        1.3516        1.5883        1.7304        1.7777        1.8061
-0.75    0.7869         7.0592              3.0000        1.6526        1.2341        0.9830        0.8993        0.8490
-0.90    0.9090         9.8763              9.0000        2.5804        1.4576        0.7839        0.5593        0.4246
-0.95    0.9573        11.8305             19.0000        3.4018        1.7905        0.8237        0.5014        0.3080
-0.98    0.9798        14.1561             49.0000        4.4710        2.2783        0.9627        0.5241        0.2610
+0.50    0.5688         4.0138              1.0000        1.2265        1.4055        1.5130        1.5488        1.5703
+0.75    0.7614         6.3183              3.0000        1.5262        1.1292        0.8909        0.8115        0.7639
+0.90    0.9047         8.9068              9.0000        2.3765        1.3323        0.7058        0.4970        0.3717
+0.95    0.9478        10.5665             19.0000        3.0783        1.6192        0.7437        0.4519        0.2768
+0.98    0.9763        12.6107             49.0000        4.0193        2.0491        0.8671        0.4730        0.2366
 
 COVERAGE is the calibration check: the share of actual days at or below
 the forecast. For a well-calibrated tau-quantile it should equal tau.
-  tau=0.50  target coverage 0.50  achieved 0.6130  (+0.1130)
-  tau=0.75  target coverage 0.75  achieved 0.7869  (+0.0369)
-  tau=0.90  target coverage 0.90  achieved 0.9090  (+0.0090)
-  tau=0.95  target coverage 0.95  achieved 0.9573  (+0.0073)
-  tau=0.98  target coverage 0.98  achieved 0.9798  (-0.0002)
+  tau=0.50  target coverage 0.50  achieved 0.5688  (+0.0688)
+  tau=0.75  target coverage 0.75  achieved 0.7614  (+0.0114)
+  tau=0.90  target coverage 0.90  achieved 0.9047  (+0.0047)
+  tau=0.95  target coverage 0.95  achieved 0.9478  (-0.0022)
+  tau=0.98  target coverage 0.98  achieved 0.9763  (-0.0037)
 
-THE P50 OVER-COVERS BADLY (0.6130 against a target of 0.50) and the reason
+THE P50 OVER-COVERS BADLY (0.5688 against a target of 0.50) and the reason
 is worth stating rather than glossing: coverage counts actual <= forecast,
 and on a series that is zero 40%% of the time the median forecast is often
 ZERO. Every zero day then counts as covered, because 0 <= 0. That is a
@@ -248,8 +309,8 @@ being a policy and becomes a claim somebody has to defend:
   a 98% service target ASSERTS that understocking costs 49x
   what overstocking costs.
 
-The mean forecast sits at 5.4156 units/day and the P95 at 11.8305 -- the gap
-is the safety stock the service level is buying, and it is 118% more
+The mean forecast sits at 4.7421 units/day and the P95 at 10.5665 -- the gap
+is the safety stock the service level is buying, and it is 123% more
 inventory than ordering to the mean would hold.
 
 HONEST LIMITS. These are DAILY quantiles, and replenishment needs the
@@ -257,5 +318,9 @@ quantile of demand over the LEAD TIME, which is not the sum of daily
 quantiles -- summing quantiles overstates, because the days do not all
 go wrong together. Converting one to the other needs the dependence
 structure across days, which is exactly what data2's negative-binomial
-experiment found it was missing. Neither project has it, and they
-independently arrived at the same gap, which is at least consistent.
+experiment found it was missing. BOTH PROJECTS ARRIVED AT THE SAME GAP
+FROM OPPOSITE DIRECTIONS, and it is now closed: run_advanced.py section B
+builds the lead-time distribution by block-bootstrapping forecast error
+PATHS, so the dependence comes from the data rather than from an
+assumption. On this panel summing daily quantiles overstates the 28-day
+P95 by 1.75x. That distribution is what data2 now consumes.

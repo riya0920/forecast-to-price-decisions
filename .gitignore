@@ -23,3 +23,10 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Large regenerable artifacts. out/ reports and CSVs ARE committed -- they are
+# the evidence the numbers in the README were measured. Pickles and run logs are
+# neither readable nor reviewable, so they are rebuilt rather than stored.
+out/*.pkl
+out/*.log
+out/emb.npz

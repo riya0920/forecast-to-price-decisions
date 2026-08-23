@@ -1,0 +1,156 @@
+==============================================================================
+A. THE POOLED-CLASS SELECTION GATE
+==============================================================================
+      gate  n_decisions     wmape      bias  n_rows  distinct_methods
+    global            1    0.1598    0.0025     900                 1
+ per_class            4    0.1603   -0.0233     900                 3
+per_series          300    0.2040   -0.0353     900                 6
+
+BEST BY WMAPE: global (0.1598)
+
+  global    1 decision  wmape 0.1598  bias +0.0025
+  per_class 4 decisions wmape 0.1603  bias -0.0233
+  per_series 300 decisions wmape 0.2040  bias -0.0353
+
+Pooling the gate to the intermittency class makes each decision on ~1350
+rows instead of ~18, which is the entire bet: that WHICH METHOD WINS is
+a property of the demand REGIME rather than of the individual SKU. That
+is the same bet the Syntetos-Boylan classification itself makes, so this
+is a test of the classification as much as of the gate.
+
+The BIAS column is why this gate is not just the old one with bigger
+groups. Candidates whose selection-window bias exceeds +/-15% are
+rejected before accuracy is even considered, because the failure the
+first gate hit was not inaccuracy -- it was handing 96 series to `naive`
+at -29% bias, which is a replenishment system that under-orders every
+slow mover it owns. WMAPE alone cannot express that and a screen can.
+
+==============================================================================
+B. LEAD-TIME DEMAND -- THE QUANTILE OF A SUM IS NOT THE SUM OF QUANTILES
+==============================================================================
+Pooled standardised error path: 50400 observations, lag-1 autocorrelation +0.0483
+
+QUANTILE CROSSING (a defect this project shipped for two passes):
+  crossing rate before rearrangement: 0.0096
+  crossing rate after  rearrangement: 0.0000
+
+       tau  pinball_raw  pinball_rearranged  coverage_raw  coverage_rearranged
+   0.50000      1.19313             1.19309       0.57216              0.57214
+   0.75000      1.09502             1.09496       0.76151              0.76149
+   0.90000      0.67961             0.68005       0.90419              0.90230
+   0.95000      0.43264             0.43183       0.94790              0.94952
+   0.98000      0.22338             0.22307       0.97722              0.97752
+
+  Pinball loss got WORSE at 1 of 5 quantiles.
+
+  Five independently fitted quantile models have nothing coupling them,
+  so the fitted P90 can land ABOVE the fitted P95 -- and it does, on
+  1.0% of item-days. That is not a numerical wart. An order system
+  reading a crossed fan orders MORE stock for a LOWER service level,
+  which inverts the meaning of the dial a planner is turning.
+
+  Monotone rearrangement -- sorting the fan at each point -- is the
+  Chernozhukov-Fernandez-Val-Galichon fix, and its appeal is that it is
+  free: the true quantile function is monotone, so sorting an estimate
+  moves it toward the truth in POPULATION.
+
+  That guarantee is a population statement, and the table shows the
+  finite-sample reality: 4 of 5 quantiles improved and 1 got very
+  slightly worse (0.00044 at tau=0.90, against a loss of 0.67961).
+  Reporting that rather than rounding it away matters, because
+  "provably no worse" is the kind of claim that gets quoted without
+  the word "expected" in front of it. The right reading is that
+  rearrangement costs nothing measurable and removes an incoherence
+  that would otherwise reach a replenishment system.
+
+  It is a post-processing step and not a fix to the cause. The cause is
+  five fits that do not know the others exist; a joint or monotone-
+  constrained estimator would be the real answer and is not built.
+
+ lead_time       tau  mean_demand  block_bootstrap  sum_of_daily_q  iid_normal  sum_vs_boot  iid_vs_boot
+         7     0.900       31.004           42.807          58.533      41.848        1.367        0.978
+         7     0.950       31.004           47.185          69.529      44.923        1.474        0.952
+         7     0.980       31.004           53.987          83.884      48.383        1.554        0.896
+        14     0.900       60.700           77.163         115.100      75.874        1.492        0.983
+        14     0.950       60.700           83.442         136.947      80.176        1.641        0.961
+        14     0.980       60.700           92.842         165.526      85.017        1.783        0.916
+        28     0.900      129.933          155.768         243.835     152.133        1.565        0.977
+        28     0.950      129.933          165.795         289.791     158.427        1.748        0.956
+        28     0.980      129.933          174.526         348.020     165.510        1.994        0.948
+
+THE TWO SHORTCUTS ERR IN OPPOSITE DIRECTIONS, which is the finding:
+
+  sum-of-daily-quantiles assumes every day goes wrong TOGETHER (perfect
+  dependence). It is 1.75x the bootstrap at L=28, tau=0.95 -- ordering
+  that much extra inventory to cover a coincidence that does not happen.
+
+  iid-normal scaling assumes the days are INDEPENDENT and scales sigma by
+  sqrt(L). It is 0.96x the bootstrap on the same row -- and it is the
+  version most safety-stock formulas actually implement.
+
+  The block bootstrap sits between them because it uses the dependence
+  the errors actually have rather than assuming either extreme. Nothing
+  about it is clever: resample CONTIGUOUS blocks and the dependence
+  comes along for free, with no correlation structure to name and no
+  copula to fit.
+
+WHICH SHORTCUT IS WORSE DEPENDS ON THE AUTOCORRELATION, and here it is
+measured rather than assumed: lag-1 rho = +0.0483, which is very nearly
+ZERO. So on THIS panel the iid formula is close to right (0.956x) and the
+sum-of-quantiles shortcut is the badly wrong one. That ordering is a
+property of the data, not a general result, and stating it the other way
+round would be the easy mistake: with strongly autocorrelated errors the
+iid version is the dangerous one, because it under-covers in exactly the
+clustered weeks that cause the stockout.
+
+The value of the bootstrap is therefore NOT that it beat both shortcuts
+by a lot here. It is that it did not need to be told which regime it was
+in. A planner who picks the iid formula is making an assumption about
+autocorrelation whether or not they know it, and this panel is the lucky
+case where the assumption happens to hold.
+
+THIS IS THE DATA-2 JOIN. DATA-2 sized safety stock from HISTORICAL mean
+and sd and named forecast integration as its most valuable missing piece;
+its negative-binomial experiment then failed for precisely this reason --
+an iid marginal, however well specified, cannot produce the right
+lead-time quantile. This is the distribution it needed.
+
+==============================================================================
+C. PROBABILISTIC RECONCILIATION -- WHY THE P95s SHOULD NOT ADD UP
+==============================================================================
+400 joint bottom-level draws, cross-series correlation preserved
+(shrunk 20% toward the identity), pushed through S.
+
+       tau  max_abs_gap  mean_sum_minus_direct  share_where_sum_exceeds
+    0.5000     320.8288                -0.7613                   0.0093
+    0.9000    1104.2021                12.3719                   0.1501
+    0.9500    1405.9833                16.0718                   0.1501
+
+Sum of children's P95 vs the level's own P95, by level:
+  level          sum of P95      own P95      ratio
+  total             83060.5      45363.2      1.831
+  state             83060.5      46648.4      1.781
+  store             83060.5      49422.8      1.681
+  store_cat         83060.5      55378.4      1.500
+  store_dept        83060.5      59635.7      1.393
+
+THE GAP IS THE POINT, NOT A DEFECT TO CLOSE.
+
+  A quantile is not a linear functional of a distribution:
+  P95(A+B) != P95(A) + P95(B) unless A and B are perfectly dependent.
+  Forcing the store P95 to equal the sum of its items' P95s would not
+  make the forecast coherent, it would make it WRONG -- it asserts that
+  every item in the store has its bad week simultaneously.
+
+  Adding up is a property of REALISATIONS. Every sample path here is
+  coherent by construction, so the coherent P95 at the total is
+  automatically BELOW the sum of item P95s by exactly the
+  diversification the residual correlation supports. The ratio column
+  is that diversification, measured.
+
+  Note the ratio SHRINKS toward the bottom of the hierarchy and grows at
+  the top: the more series you pool, the more the independent part of
+  their errors cancels. Aggregate safety stock sized by summing item
+  safety stocks is over-provisioned by that ratio, and it is the
+  argument for holding buffer centrally rather than at the leaf.
+

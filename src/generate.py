@@ -43,6 +43,37 @@ SNAP_DAYS = {"CA": set(range(1, 11)), "TX": {d for d in range(1, 16) if d % 2 ==
 
 PROMO_DISPLAY_LIFT = 0.35  # lift a promo gives BEYOND its own price cut
 
+# --------------------------------------------------------------------------
+# Heterogeneity and cannibalisation -- added so the pricing half has something
+# real to recover.
+#
+# Until now every item in a category shared one elasticity and no item's demand
+# depended on any other item's price. That made two questions unanswerable by
+# construction rather than by difficulty: "is elasticity a property of the
+# category or of the SKU?" and "what does this markdown do to the rest of the
+# department?" A generator with a homogeneous truth cannot score an estimator
+# that tries to find heterogeneity -- every difference it reports is noise, and
+# the experiment can only ever conclude "no signal".
+#
+# ELASTICITY_SPREAD: per-item elasticity is the category's, multiplied by a
+# lognormal. Multiplicative rather than additive so the SIGN is preserved -- an
+# additive shock large enough to be interesting would flip some items to
+# upward-sloping demand, which is a Giffen good and not what is being modelled.
+ELASTICITY_SPREAD = 0.22
+
+# CROSS_ELASTICITY: an item's demand responds POSITIVELY to its department
+# siblings' prices -- they are substitutes, so when they get expensive, this one
+# sells more. Scoped to the department rather than the category because that is
+# the level a shopper actually substitutes at: two brands of pasta sauce compete,
+# pasta sauce and dish soap do not.
+#
+# It is smaller than own-price elasticity (0.35 against -0.6..-2.1) and that
+# ordering matters: cross effects that rival own effects would make the whole
+# assortment one product. The reason it still matters commercially is that it
+# applies to EVERY sibling at once, so a department-wide markdown accumulates
+# cannibalisation that a single-item view cannot see.
+CROSS_ELASTICITY = 0.35
+
 
 def _calendar() -> pd.DataFrame:
     dates = pd.date_range(START, periods=DAYS, freq="D")
@@ -99,9 +130,11 @@ def _items() -> pd.DataFrame:
                 base = {"fast": RNG.uniform(8, 30), "mid": RNG.uniform(1.5, 6),
                         "slow": RNG.uniform(0.25, 1.0),
                         "very_slow": RNG.uniform(0.03, 0.18)}[tier]
+                own = float(elas * RNG.lognormal(0.0, ELASTICITY_SPREAD))
                 rows.append(dict(
                     item_id="%s_%03d" % (dept, i), dept_id=dept, cat_id=cat,
-                    tier=tier, base_rate=base, elasticity=elas,
+                    tier=tier, base_rate=base, elasticity=own,
+                    cat_elasticity=elas,
                     base_price=round(float(RNG.uniform(*band)), 2),
                     seasonal_amp=float(RNG.uniform(0.05, 0.45)),
                     seasonal_phase=float(RNG.uniform(0, 2 * np.pi)),
@@ -161,15 +194,52 @@ def build():
     for store, state in STORES.items():
         smult = STORE_MULT[store]
         snap = cal.day.isin(SNAP_DAYS[state]).to_numpy().astype(float)
+
+        # PASS 1 -- prices for every item in the store.
+        #
+        # Prices have to exist for the whole department before any demand can be
+        # computed, because each item's demand now depends on its siblings'
+        # prices. Doing it in one pass would mean an item could only see the
+        # siblings generated before it, which is an ordering artifact rather
+        # than a market.
+        paths = {}
         for it in items.itertuples():
             seas = 1 + it.seasonal_amp * np.sin(
                 2 * np.pi * cal.doy.to_numpy() / 365.25 + it.seasonal_phase)
             demand_index = seasonal_base * seas
             price, promo = _price_path(n, it.base_price, demand_index)
+            paths[it.item_id] = (demand_index, price, promo)
+
+        # Department-level relative price index: the geometric mean of every
+        # sibling's price relative to its own base. Geometric rather than
+        # arithmetic so that the index is symmetric in log price, which is the
+        # space the elasticity is defined in -- an arithmetic mean would let one
+        # expensive SKU dominate an index that is meant to describe the shelf.
+        by_dept: dict[str, list[str]] = {}
+        for it in items.itertuples():
+            by_dept.setdefault(it.dept_id, []).append(it.item_id)
+        log_rel = {iid: np.log(paths[iid][1] / float(base))
+                   for iid, base in zip(items.item_id, items.base_price)}
+        dept_index = {}
+        for dept, members in by_dept.items():
+            stacked = np.vstack([log_rel[m] for m in members])
+            dept_index[dept] = stacked
+
+        # PASS 2 -- demand, now with the cross term.
+        for pos, it in enumerate(items.itertuples()):
+            demand_index, price, promo = paths[it.item_id]
+            members = by_dept[it.dept_id]
+            stacked = dept_index[it.dept_id]
+            mine = members.index(it.item_id)
+            # siblings only: an item does not substitute for itself, and leaving
+            # it in would quietly cancel part of its own-price coefficient
+            rivals = np.delete(stacked, mine, axis=0)
+            rival_log_rel = rivals.mean(axis=0) if len(rivals) else np.zeros(n)
 
             lam = (it.base_rate * smult * demand_index
                    * (1 + it.snap_sens * snap)
                    * (price / it.base_price) ** it.elasticity
+                   * np.exp(CROSS_ELASTICITY * rival_log_rel)
                    * (1 + PROMO_DISPLAY_LIFT * promo))
             # gamma mixing -> negative-binomial counts; retail sales are not Poisson
             lam = lam * RNG.gamma(shape=4.0, scale=0.25, size=n)
@@ -191,6 +261,13 @@ def build():
 
     truth = {
         "elasticity_by_category": {c: v[1] for c, v in CATEGORIES.items()},
+        # The per-item truth. Category elasticity is now the MEAN of a spread,
+        # not the value every item shares, so "estimate per item" becomes a
+        # question with a right answer instead of a fishing expedition.
+        "elasticity_by_item": {r.item_id: round(float(r.elasticity), 4)
+                               for r in items.itertuples()},
+        "elasticity_spread": ELASTICITY_SPREAD,
+        "cross_elasticity": CROSS_ELASTICITY,
         "promo_display_lift": PROMO_DISPLAY_LIFT,
         "n_series": int(df.groupby(["item_id", "store_id"]).ngroups),
         "n_rows": int(len(df)),
