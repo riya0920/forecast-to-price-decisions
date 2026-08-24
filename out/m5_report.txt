@@ -36,31 +36,65 @@ those windows are drawn from changes.
   times the compute as well as a hundred times the series. The claim
   under test is about breadth, so breadth is what varies.
 
-    300 series -> stride   3, 150000 windows,   207s
-   3000 series -> stride  36, 150000 windows,   125s
-  30000 series -> stride 366, 150000 windows,   136s
+    300 series -> stride   3, 150000 windows,    76s
+   3000 series -> stride  36, 150000 windows,    94s
+  30000 series -> stride 366, 150000 windows,    87s
 
  series  stride  windows  nbeats_wmape  nbeats_bias  snaive_wmape  snaive_bias  fit_seconds
-    300       3   150000        0.6514      -0.3609        0.8174      -0.0830     207.0000
-   3000      36   150000        0.6748      -0.3625        0.8553      -0.0811     125.2000
-  30000     366   150000        0.6712      -0.3367        0.8627      -0.0736     136.2000
+    300       3   150000        0.6514      -0.3609        0.8174      -0.0830      76.2000
+   3000      36   150000        0.6748      -0.3625        0.8553      -0.0811      94.2000
+  30000     366   150000        0.6712      -0.3367        0.8627      -0.0736      87.2000
 
-  FVA against seasonal naive (positive = the deep model is better):
-      300 series : +0.1660
-     3000 series : +0.1805
-    30000 series : +0.1914
+  RAW WMAPE IS NOT COMPARABLE ACROSS THESE ROWS, and reading it that way
+  was the first mistake this section made. Each arm is a DIFFERENT
+  SAMPLE of series, and the samples are not equally hard: the seasonal
+  naive scores 0.8174 on the 300-series sample and 0.8627 on the 30,000.
+  A model whose absolute WMAPE holds flat across those two is doing
+  BETTER on the second, not worse.
 
-  THE SCALE CLAIM DOES NOT HOLD. WMAPE does not improve with more
-  series on a fixed budget (0.6514 at 300, 0.6712 at 30000), so 'we needed
-  more data' was a story rather than a diagnosis -- at least in the
-  form 'more SERIES'. It may still be true of more COMPUTE, which
-  this design deliberately holds fixed and therefore cannot say.
+  FVA against the seasonal naive is the comparison that survives,
+  because both terms are computed on the same series:
 
-  READ THE BIAS COLUMN TOO. This project's original finding was not
-  that the deep arm was less accurate -- it was that it forecast 20%
-  LOW, and a model a fifth low on every order is a different and worse
-  decision rather than a slightly worse one. On real M5 its bias runs
-  -0.3625 to -0.3367 against the seasonal naive's -0.0830 to -0.0736.
+      300 series : naive 0.8174  n-beats 0.6514  FVA +0.1660
+     3000 series : naive 0.8553  n-beats 0.6748  FVA +0.1805
+    30000 series : naive 0.8627  n-beats 0.6712  FVA +0.1914
+
+  THE SCALE CLAIM HOLDS, MODESTLY AND ONLY ON THE RIGHT METRIC. FVA
+  rises +0.1660 -> +0.1805 -> +0.1914 as the panel widens, on a FIXED
+  training budget -- so it is breadth buying the improvement rather
+  than gradient steps. '300 series is far below where global deep
+  models start paying' was directionally right.
+
+  But read the size before staffing anything: a hundred times the
+  series buys +0.0255 of FVA. That is a real gain and it is not the
+  step change the phrase 'start paying' suggests.
+
+  AND THE BIAS DOES NOT IMPROVE AT ALL, WHICH IS THE REAL FINDING.
+
+      300 series : n-beats bias -0.3609   naive bias -0.0830
+     3000 series : n-beats bias -0.3625   naive bias -0.0811
+    30000 series : n-beats bias -0.3367   naive bias -0.0736
+
+  On the generator this project measured N-BEATS at -20.6% bias and
+  called the WMAPE gap 'the boring half' -- the real problem being that
+  a model a fifth low on every order is a different and worse decision.
+  On real M5 it forecasts 35% LOW, worse than on the generator, and
+  a hundred times the series does not move it.
+
+  THAT IS WHY IT BEATS THE NAIVE ON WMAPE. Mean-scaled absolute error on
+  a panel that is 63% zeros REWARDS forecasting low: a low forecast is
+  right on the many zero days and wrong only on the few that sell. The
+  deep arm is winning the metric by exploiting it, and a replenishment
+  system driven by it would under-order every slow mover it owns.
+
+  So the honest verdict is split. The SCALE explanation was
+  directionally right and worth little. The BIAS diagnosis was right
+  and is worth more on real data than it was on the generator.
+
+  WHAT IS NOT CONTROLLED: compute is held fixed on purpose, so this
+  cannot say whether more EPOCHS would help; and the GBM arm is not
+  rerun here, so 'N-BEATS 0.5656 against the GBM 0.5291' has no real-
+  data counterpart. The baseline here is the seasonal naive.
 
 ==============================================================================
 WHAT M5 CANNOT DO

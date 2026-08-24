@@ -179,7 +179,7 @@ def main():
         emit("    %5d series : n-beats bias %+.4f   naive bias %+.4f"
              % (r.series, r.nbeats_bias, r.snaive_bias))
     emit("")
-    emit("  On the generator this project measured N-BEATS at -20.6%% bias and")
+    emit("  On the generator this project measured N-BEATS at -20.6% bias and")
     emit("  called the WMAPE gap 'the boring half' -- the real problem being that")
     emit("  a model a fifth low on every order is a different and worse decision.")
     emit("  On real M5 it forecasts %.0f%% LOW, worse than on the generator, and"
