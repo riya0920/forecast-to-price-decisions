@@ -1,0 +1,72 @@
+==============================================================================
+ML-1 M5 PASS -- THE SCALE CLAIM, ON REAL DATA
+==============================================================================
+'No real dataset. M5 is not downloadable here.' -- half false. The
+competition download 403s until its rules are accepted, but the daily
+sales panel is republished as a plain Kaggle DATASET.
+
+PROVENANCE: tbierhance/m5-forecasting-parquet-and-aggregations, a
+third-party re-encoding rather than the official archive, not diffed
+against it because the official one is the gated one.
+
+==============================================================================
+A. IS THE GENERATOR'S DEMAND SHAPED LIKE M5'S?
+==============================================================================
+  M5 panel                 : 30490 series x 1941 days
+  zero share               : 0.6346
+  median inter-demand gap  : 2.475 days
+  median CV^2 of nonzeros  : 0.474
+
+  Two thirds of M5 is zeros. That is the property the generator was
+  built to imitate and the reason WMAPE misbehaves on it -- and it is
+  worth confirming on the real panel before trusting any conclusion
+  drawn from a simulated one.
+
+==============================================================================
+B. DOES THE DEEP ARM CATCH UP AS THE PANEL GROWS?
+==============================================================================
+Same architecture, same loss, same 28-day horizon, and -- this is the
+part that makes it an experiment -- THE SAME TRAINING BUDGET. Every arm
+sees ~150000 windows for 8 epochs; only the number of distinct series
+those windows are drawn from changes.
+
+  Holding epochs fixed and letting the window count grow with the panel
+  would confound BREADTH with VOLUME: 30,000 series at stride 3 is 18
+  million windows, and an arm that wins there has been given sixty
+  times the compute as well as a hundred times the series. The claim
+  under test is about breadth, so breadth is what varies.
+
+    300 series -> stride   3, 150000 windows,   207s
+   3000 series -> stride  36, 150000 windows,   125s
+  30000 series -> stride 366, 150000 windows,   136s
+
+ series  stride  windows  nbeats_wmape  nbeats_bias  snaive_wmape  snaive_bias  fit_seconds
+    300       3   150000        0.6514      -0.3609        0.8174      -0.0830     207.0000
+   3000      36   150000        0.6748      -0.3625        0.8553      -0.0811     125.2000
+  30000     366   150000        0.6712      -0.3367        0.8627      -0.0736     136.2000
+
+  FVA against seasonal naive (positive = the deep model is better):
+      300 series : +0.1660
+     3000 series : +0.1805
+    30000 series : +0.1914
+
+  THE SCALE CLAIM DOES NOT HOLD. WMAPE does not improve with more
+  series on a fixed budget (0.6514 at 300, 0.6712 at 30000), so 'we needed
+  more data' was a story rather than a diagnosis -- at least in the
+  form 'more SERIES'. It may still be true of more COMPUTE, which
+  this design deliberately holds fixed and therefore cannot say.
+
+  READ THE BIAS COLUMN TOO. This project's original finding was not
+  that the deep arm was less accurate -- it was that it forecast 20%
+  LOW, and a model a fifth low on every order is a different and worse
+  decision rather than a slightly worse one. On real M5 its bias runs
+  -0.3625 to -0.3367 against the seasonal naive's -0.0830 to -0.0736.
+
+==============================================================================
+WHAT M5 CANNOT DO
+==============================================================================
+  No known elasticity, no planted cross-price effect, no ground-truth
+  substitute set. Every scored-against-truth result in this project
+  stays on the generator: real data can falsify a claim about model
+  behaviour, and it cannot supply a number nobody measured.
+

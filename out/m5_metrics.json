@@ -1,0 +1,41 @@
+{
+  "intermittency": {
+    "zero_share": 0.6345911901081916,
+    "median_adi": 2.4745720868992755,
+    "median_cv2": 0.47434844076633453,
+    "series": 2000,
+    "days": 1941
+  },
+  "scale": [
+    {
+      "series": 300,
+      "stride": 3,
+      "windows": 150000,
+      "nbeats_wmape": 0.65139,
+      "nbeats_bias": -0.36093,
+      "snaive_wmape": 0.81736,
+      "snaive_bias": -0.08304,
+      "fit_seconds": 207.0
+    },
+    {
+      "series": 3000,
+      "stride": 36,
+      "windows": 150000,
+      "nbeats_wmape": 0.67484,
+      "nbeats_bias": -0.36252,
+      "snaive_wmape": 0.85534,
+      "snaive_bias": -0.08106,
+      "fit_seconds": 125.2
+    },
+    {
+      "series": 30000,
+      "stride": 366,
+      "windows": 150000,
+      "nbeats_wmape": 0.67123,
+      "nbeats_bias": -0.33673,
+      "snaive_wmape": 0.86267,
+      "snaive_bias": -0.07357,
+      "fit_seconds": 136.2
+    }
+  ]
+}

@@ -17,7 +17,7 @@ python report.py             # ~25s    the FVA tables
 python run_advanced.py       # ~15s    pooled gate, lead-time demand, probabilistic reconciliation
 python run_pricing.py        # ~4min   elasticity (category/item/segment/cross) + markdown MILP
 uvicorn serve:app --port 8011   #       the planner service
-python -m pytest tests -q    # 66 tests
+python -m pytest tests -q    # 78 tests
 ```
 
 300 item×store series, 1,460 days, 353 series across six hierarchy levels.
@@ -340,11 +340,89 @@ revenue for a team using log-log OLS, against 0.52% for the Poisson spec.
   and the kind of stale cross-reference that survives three passes because nobody
   re-reads the other project's README.
 
+## Real M5 — the scale claim, tested
+
+*"No real dataset. M5 is not downloadable here."* **Half false.** The competition's
+own download 403s until its rules are accepted in a browser, but the daily sales
+panel is republished as a plain Kaggle **dataset**, and datasets carry no rules
+gate.
+
+```bash
+python run_m5.py
+```
+
+> **Provenance:** `tbierhance/m5-forecasting-parquet-and-aggregations`, a
+> third-party re-encoding rather than the official archive, not diffed against it
+> because the official one is the gated one. 30,490 series × 1,941 days — M5's
+> exact shape.
+
+**First, the generator's central assumption checks out.** Real M5 is **63.5%
+zeros**, median inter-demand gap **2.47 days**, median CV² of nonzeros 0.47. That
+is the property the generator was built to imitate, and confirming it is what
+gives any generator-derived conclusion a claim on reality.
+
+### Does the deep arm catch up as the panel widens?
+
+The claim under test was this project's own explanation of a negative result:
+
+> *"It is not evidence that deep forecasting loses. 300 series is far below where
+> global deep models start paying."*
+
+Same architecture, same loss, same horizon, and — the part that makes it an
+experiment — **the same training budget**: 150,000 windows and 8 epochs for every
+arm, with only the number of distinct series varying. Letting the window count grow
+with the panel would confound *breadth* with *volume* (30,000 series at stride 3 is
+18 million windows, i.e. sixty times the compute as well as a hundred times the
+series).
+
+| series | seasonal naive | N-BEATS | **FVA** | N-BEATS bias | naive bias |
+|---|---|---|---|---|---|
+| 300 | 0.8174 | 0.6514 | **+0.1660** | −0.3609 | −0.0830 |
+| 3,000 | 0.8553 | 0.6748 | +0.1805 | −0.3625 | −0.0811 |
+| 30,000 | 0.8627 | 0.6712 | **+0.1914** | −0.3367 | −0.0736 |
+
+> **Raw WMAPE is not comparable across these rows, and reading it that way was the
+> first mistake this section made.** Each arm is a *different sample* of series and
+> they are not equally hard — the seasonal naive scores 0.8174 on the 300-series
+> sample and 0.8627 on the 30,000. A model whose absolute WMAPE holds flat across
+> those two is doing **better** on the second, not worse. FVA is the comparison
+> that survives, because both terms are computed on the same series.
+
+**The scale claim holds — modestly, and only on the right metric.** FVA rises
+monotonically on a fixed budget, so it is *breadth* buying the improvement rather
+than gradient steps. But **a hundred times the series buys +0.025 of FVA**: real,
+and not the step change "start paying" suggests.
+
+### And the bias does not improve at all, which is the real finding
+
+On the generator this project measured N-BEATS at **−20.6%** bias and called the
+WMAPE gap "the boring half". On real M5 it forecasts **34–36% low** — *worse* than
+on the generator — and a hundred times the series does not move it.
+
+**That is also why it beats the naive on WMAPE.** Mean-scaled absolute error on a
+panel that is 63% zeros **rewards forecasting low**: a low forecast is right on the
+many zero days and wrong only on the few that sell. The deep arm is winning the
+metric by exploiting it, and a replenishment system driven by it would under-order
+every slow mover it owns.
+
+**So the verdict splits.** The *scale* explanation was directionally right and
+worth little. The *bias* diagnosis was right, and is worth more on real data than
+it was on the generator.
+
+> **Not controlled:** compute is fixed on purpose, so this cannot say whether more
+> *epochs* would help. And the GBM arm is not rerun here — the baseline is the
+> seasonal naive, so "N-BEATS 0.5656 against the GBM's 0.5291" has no real-data
+> counterpart.
+
 ## What is deliberately not here
 
-- **No real dataset.** M5 is not downloadable here, and the generator is the point
-  anyway: elasticity, cross-price and per-item heterogeneity are *scored* against
-  planted truth, which no public dataset permits.
+- **M5 is used for one experiment, not as the panel.** The backtest, the
+  reconciliation survey, the quantiles, the elasticity work and the markdown MILP
+  all still run on the generator; only the deep arm's scale claim was re-tested.
+- **M5 cannot score elasticity.** No known price response, no planted cross-price
+  effect, no ground-truth substitute set — so every scored-against-truth result
+  here stays on the generator. Real data can falsify a claim about model
+  behaviour; it cannot supply a number nobody measured.
 - **The generator is a model.** Its demand is a gamma-mixed Poisson with a
   multiplicative price effect, which is close to what the GBM assumes — so every
   method here does better than it would on real data.
