@@ -17,7 +17,7 @@ python report.py             # ~25s    the FVA tables
 python run_advanced.py       # ~15s    pooled gate, lead-time demand, probabilistic reconciliation
 python run_pricing.py        # ~4min   elasticity (category/item/segment/cross) + markdown MILP
 uvicorn serve:app --port 8011   #       the planner service
-python -m pytest tests -q    # 64 tests
+python -m pytest tests -q    # 66 tests
 ```
 
 300 item×store series, 1,460 days, 353 series across six hierarchy levels.

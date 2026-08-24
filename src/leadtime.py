@@ -88,11 +88,32 @@ def leadtime_samples(point_path: np.ndarray, error_pool: np.ndarray,
     if len(pool) < MIN_POOL_PATHS:
         raise ValueError("error pool too small to bootstrap: %d" % len(pool))
 
+    return leadtime_daily_paths(point_path, error_pool, n_samples=n_samples,
+                                block=block, seed=seed).sum(axis=1)
+
+
+def leadtime_daily_paths(point_path: np.ndarray, error_pool: np.ndarray,
+                         n_samples: int = 4000, block: int = DEFAULT_BLOCK,
+                         seed: int = 0) -> np.ndarray:
+    """The same bootstrap, returned as (n_samples, L) DAILY demand rather than
+    summed over the lead time.
+
+    `leadtime_samples` delegates here, so there is one bootstrap and not two.
+    A consumer that needs to know WHEN stock runs out -- rather than how much is
+    needed in total -- cannot work from the sum: a replenishment arriving on day
+    4 changes which shortfalls happen and which do not, and that information is
+    destroyed by summing. SE-1's forward-looking DC allocation is that consumer.
+    """
+    point_path = np.asarray(point_path, float)
+    L = len(point_path)
+    pool = np.asarray(error_pool, float)
+    pool = pool[np.isfinite(pool)]
+    if len(pool) < MIN_POOL_PATHS:
+        raise ValueError("error pool too small to bootstrap: %d" % len(pool))
     rng = np.random.default_rng(seed)
     z = _blocks(pool, L, block, rng, n_samples)          # (n, L)
     scale = np.sqrt(np.clip(point_path, 0.25, None))[None, :]
-    daily = np.clip(point_path[None, :] + z * scale, 0, None)
-    return daily.sum(axis=1)
+    return np.clip(point_path[None, :] + z * scale, 0, None)
 
 
 def leadtime_quantile(point_path, error_pool, tau: float, **kw) -> float:
