@@ -1,0 +1,11 @@
+fastapi
+lightgbm
+numpy
+pandas
+pyarrow
+pydantic
+pytest
+scikit-learn
+scipy
+statsmodels
+torch
