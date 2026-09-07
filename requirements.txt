@@ -1,11 +1,12 @@
 fastapi
+httpx
 lightgbm
 numpy
 pandas
+pulp
 pyarrow
 pydantic
 pytest
 scikit-learn
 scipy
 statsmodels
-torch
