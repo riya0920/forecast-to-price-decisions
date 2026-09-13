@@ -1,4 +1,4 @@
-"""The real M5 panel — the dataset this project said it could not have.
+"""The real M5 panel: the dataset this project said it could not have.
 
 WHAT THIS PROJECT SAID, IN EVERY PASS
 -------------------------------------
